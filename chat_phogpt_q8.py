@@ -20,7 +20,7 @@ hf_hub_download, Llama = load_runtime_dependencies()
 MODEL_REPO = "vinai/PhoGPT-4B-Chat-gguf"
 MODEL_FILENAME = "PhoGPT-4B-Chat-Q8_0.gguf"
 
-SYSTEM_PROMPT = """Bạn là một chú thỏ bông thân thiện, trả lời bằng tiếng Việt tự nhiên, rõ ràng và ngắn gọn.
+SYSTEM_PROMPT = """Bạn là một chú cừu thân thiện, trả lời bằng tiếng Việt tự nhiên, rõ ràng và ngắn gọn.
 Nếu câu hỏi thiếu ngữ cảnh, hãy hỏi lại để làm rõ thay vì đoán."""
 
 PROMPT_TEMPLATE = "### Câu hỏi: {instruction}\n### Trả lời:"
