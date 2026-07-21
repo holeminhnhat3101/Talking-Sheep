@@ -17,11 +17,6 @@ if ! command -v "$PYTHON_COMMAND" >/dev/null 2>&1; then
     exit 1
 fi
 
-if [[ ! -f "$SCRIPT_DIR/onnx/model_q4.onnx" ]]; then
-    echo "Model file not found: $SCRIPT_DIR/onnx/model_q4.onnx"
-    exit 1
-fi
-
 if [[ ! -x "$PYTHON" ]]; then
     echo "Creating a Python environment..."
     if ! "$PYTHON_COMMAND" -m venv "$VENV_DIR"; then
@@ -37,11 +32,11 @@ if [[ ! -x "$PYTHON" ]]; then
     fi
 fi
 
-if ! "$PYTHON" -c 'import onnxruntime, torch, transformers; from optimum.onnxruntime import ORTModelForCausalLM' >/dev/null 2>&1; then
+if ! "$PYTHON" -c 'import huggingface_hub, llama_cpp' >/dev/null 2>&1; then
     echo "Installing AI runtime packages. This happens only on the first run..."
     "$PYTHON" -m pip install --upgrade pip
     "$PYTHON" -m pip install --prefer-binary -r "$SCRIPT_DIR/requirements-rpi.txt"
 fi
 
 export OMP_NUM_THREADS="${OMP_NUM_THREADS:-4}"
-exec "$PYTHON" "$SCRIPT_DIR/chat_qwen_q4.py"
+exec "$PYTHON" "$SCRIPT_DIR/chat_phogpt_q8.py"
