@@ -55,6 +55,44 @@ def build_prompt(history: list[tuple[str, str]], user_prompt: str) -> str:
     return "\n\n".join(parts)
 
 
+class PhoGPTChat:
+    """Wrapper for PhoGPT chat functionality."""
+    
+    def __init__(self, model_root: Path = None):
+        if model_root is None:
+            model_root = Path(__file__).resolve().parent
+        
+        self.model_root = model_root
+        self.model_path = ensure_model(model_root)
+        n_ctx = int(os.environ.get("PHOGPT_CONTEXT", "4096"))
+        n_threads = int(os.environ.get("PHOGPT_THREADS", str(os.cpu_count() or 4)))
+        
+        self.llm = Llama(
+            model_path=str(self.model_path),
+            n_ctx=n_ctx,
+            n_threads=n_threads,
+            n_batch=min(512, n_ctx),
+            verbose=False,
+        )
+        self.history: list[tuple[str, str]] = []
+    
+    def generate_response(self, user_prompt: str) -> str:
+        """Generate response for user prompt."""
+        prompt_text = build_prompt(self.history, user_prompt)
+        output = self.llm(
+            prompt_text,
+            max_tokens=256,
+            temperature=0.7,
+            top_p=0.9,
+            repeat_penalty=1.05,
+            stop=["### Câu hỏi:"],
+        )
+        
+        reply = output["choices"][0]["text"].strip()
+        self.history.append((user_prompt, reply))
+        return reply
+
+
 def main() -> None:
     model_root = Path(__file__).resolve().parent
     model_path = ensure_model(model_root)
