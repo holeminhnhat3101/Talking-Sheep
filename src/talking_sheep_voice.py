@@ -20,6 +20,8 @@ def parse_args(argv=None) -> argparse.Namespace:
     p.add_argument("--model-root", default=None, help="PhoGPT model root directory")
     p.add_argument("--bleats-dir", default="assets/bleats", help="Path to bleat WAV files")
     p.add_argument("--runtime-dir", default="runtime", help="Directory for temporary WAVs")
+    p.add_argument("--input-device", type=int, default=None, help="Microphone input device index for PortAudio/ALSA")
+    p.add_argument("--list-mics", action="store_true", help="List detected microphones and exit")
     p.add_argument("--log-level", default="INFO", help="Logging level")
     return p.parse_args(argv)
 
@@ -61,8 +63,15 @@ def main(argv=None) -> None:
         from src.audio_player import AudioPlayer
         from src.voice_layer import create_spoken_response
 
-    recorder = AudioRecorder()
-    logger.info("AudioRecorder ready.")
+    recorder = AudioRecorder(device_index=args.input_device)
+
+    if args.list_mics:
+        print("Detected Microphone Input Devices:")
+        for mic in recorder.list_input_devices():
+            print(f"  [{mic['index']}] {mic['name']} (Channels: {mic['channels']}, SampleRate: {mic['default_sample_rate']}Hz)")
+        return
+
+    logger.info("AudioRecorder ready (device_index=%s).", recorder.device_index)
 
     # Speech-to-Text
     stt = VietnameseSTT(model_size=args.stt_model)
