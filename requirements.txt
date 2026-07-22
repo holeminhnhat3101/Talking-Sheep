@@ -11,9 +11,6 @@ pydub>=0.25.1
 # Speech-to-Text (Vietnamese)
 openai-whisper>=20230314
 
-# Text-to-Speech (Vietnamese) - Local ONNX-based
-sherpa-onnx>=1.10.0
-numpy>=1.24.0
 
 # Audio file handling
 wave (built-in)

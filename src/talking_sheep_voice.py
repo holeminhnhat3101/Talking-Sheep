@@ -1,10 +1,10 @@
 from pathlib import Path
-from audio_recorder import AudioRecorder
-from vietnamese_stt import VietnameseSTT
-from vietnamese_tts import VietnameseTTS
-from audio_player import AudioPlayer
-from chat_phogpt_q8 import PhoGPTChat
-from voice_layer import create_spoken_response
+from typing import Optional, Any
+from .audio_recorder import AudioRecorder
+from .vietnamese_stt import VietnameseSTT
+from .audio_player import AudioPlayer
+from .chat_phogpt_q8 import PhoGPTChat
+from .voice_layer import create_spoken_response
 
 
 class TalkingSheepVoice:
@@ -14,7 +14,7 @@ class TalkingSheepVoice:
         self,
         model_root: Path = None,
         stt_model: str = "tiny",
-        tts_model_dir: Path = None,
+        tts: Optional[Any] = None,
     ):
         """
         Initialize all voice components.
@@ -22,13 +22,13 @@ class TalkingSheepVoice:
         Args:
             model_root: Path to LLM model directory
             stt_model: Whisper model size (tiny, base, small, medium, large)
-            tts_model_dir: Path to sherpa-onnx TTS model directory
+            tts: Optional external TTS engine instance or synthesis function
         """
         print("Initializing Talking Sheep Voice Layer...")
         
         self.recorder = AudioRecorder()
         self.stt = VietnameseSTT(model_size=stt_model)
-        self.tts = VietnameseTTS(model_dir=tts_model_dir)
+        self.tts = tts
         self.player = AudioPlayer()
         self.llm = PhoGPTChat(model_root=model_root)
         
@@ -63,17 +63,20 @@ class TalkingSheepVoice:
         
         print(f"Sheep responds: {response}")
         
-        # Step 4: Create spoken response with TTS and bleats
-        print("Synthesizing speech...")
-        final_wav = create_spoken_response(
-            response_text=response,
-            tts=self.tts,
-            runtime_dir=self.runtime_dir,
-        )
-        
-        # Step 5: Play final audio
-        print("Playing response...")
-        self.player.play_blocking(str(final_wav))
+        # Step 4: Create spoken response with TTS and bleats (if TTS engine provided)
+        if self.tts is not None:
+            print("Synthesizing speech...")
+            final_wav = create_spoken_response(
+                response_text=response,
+                tts=self.tts,
+                runtime_dir=self.runtime_dir,
+            )
+            
+            # Step 5: Play final audio
+            print("Playing response...")
+            self.player.play_blocking(str(final_wav))
+        else:
+            print("No TTS engine attached. Skipping audio playback.")
         
         print("--- Conversation cycle complete ---\n")
     

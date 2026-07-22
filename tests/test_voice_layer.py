@@ -1,6 +1,11 @@
 """Tests for voice layer functionality."""
-import pytest
-from voice_layer import split_sentences, choose_bleat_position, choose_bleat
+import sys
+from pathlib import Path
+
+# Add project root to sys.path
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+
+from src.voice_layer import split_sentences, choose_bleat_position, choose_bleat
 
 
 def test_split_sentences_single():
@@ -96,4 +101,22 @@ def test_choose_bleat_neutral():
 
 
 if __name__ == "__main__":
-    pytest.main([__file__, "-v"])
+    try:
+        import pytest
+        pytest.main([__file__, "-v"])
+    except ImportError:
+        # Fallback runner for standalone functions
+        print("Running tests...")
+        test_split_sentences_single()
+        test_split_sentences_multiple()
+        test_split_sentences_periods()
+        test_split_sentences_decimal()
+        test_split_sentences_no_punctuation()
+        test_split_sentences_complex()
+        test_choose_bleat_position_single_sentence()
+        test_choose_bleat_position_multiple_sentences()
+        test_choose_bleat_position_probability()
+        test_choose_bleat_happy()
+        test_choose_bleat_confused()
+        test_choose_bleat_neutral()
+        print("All tests passed successfully!")

@@ -12,12 +12,12 @@ Microphone → VAD → STT → LLM → Sentence Splitter → Bleat Selection →
 
 ### Core Modules
 
-- **`voice_layer.py`**: Sentence splitting, bleat selection, and audio composition
-- **`audio_recorder.py`**: Microphone capture with VAD (Voice Activity Detection)
-- **`vietnamese_stt.py`**: Vietnamese Speech-to-Text using Whisper
-- **`audio_player.py`**: WAV file playback
-- **`chat_phogpt_q8.py`**: PhoGPT LLM integration (enhanced with wrapper class)
-- **`talking_sheep_voice.py`**: Main orchestration layer
+- **`src/voice_layer.py`**: Sentence splitting, bleat selection, and audio composition
+- **`src/audio_recorder.py`**: Microphone capture with VAD (Voice Activity Detection)
+- **`src/vietnamese_stt.py`**: Vietnamese Speech-to-Text using Whisper
+- **`src/audio_player.py`**: WAV file playback
+- **`src/chat_phogpt_q8.py`**: PhoGPT LLM integration (enhanced with wrapper class)
+- **`src/talking_sheep_voice.py`**: Main orchestration layer
 
 ### Features
 
@@ -26,7 +26,7 @@ Microphone → VAD → STT → LLM → Sentence Splitter → Bleat Selection →
   - 30% probability of inserting a sheep sound
   - Only between sentences (never inside words)
   - Context-aware selection (happy, confused, or neutral)
-- **Audio Composition**: Concatenates a udio segments with optional bleat and pauses
+- **Audio Composition**: Concatenates audio segments with optional bleat and pauses
 - **VAD Recording**: Automatic recording stops on silence detection
 
 ## Installation
@@ -66,19 +66,19 @@ sudo apt-get install ffmpeg
 ### Run the voice layer:
 
 ```bash
-python talking_sheep_voice.py
+python -m src.talking_sheep_voice
 ```
 
 ### Run tests:
 
 ```bash
-pytest test_voice_layer.py -v
+pytest tests/test_voice_layer.py -v
 ```
 
 ### Use as a module:
 
 ```python
-from talking_sheep_voice import TalkingSheepVoice
+from src.talking_sheep_voice import TalkingSheepVoice
 
 # Optionally pass an external TTS engine (e.g. Kokoro Vietnamese)
 voice = TalkingSheepVoice(tts=my_kokoro_tts)

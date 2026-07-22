@@ -86,7 +86,12 @@ def create_spoken_response(
 
     for index, sentence in enumerate(sentences):
         output = runtime_dir / f"sentence_{index}.wav"
-        tts.synthesize(sentence, str(output))
+        if callable(tts):
+            tts(sentence, str(output))
+        elif hasattr(tts, "synthesize"):
+            tts.synthesize(sentence, str(output))
+        else:
+            raise ValueError("TTS engine must be a callable or an object with a synthesize(text, output_path) method")
         sentence_files.append(output)
 
     bleat_position = choose_bleat_position(sentences)

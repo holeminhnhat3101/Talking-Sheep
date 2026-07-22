@@ -76,4 +76,4 @@ if ! "$PYTHON" -c 'import huggingface_hub, llama_cpp' >/dev/null 2>&1; then
 fi
 
 export OMP_NUM_THREADS="${OMP_NUM_THREADS:-4}"
-exec "$PYTHON" "$SCRIPT_DIR/chat_phogpt_q8.py"
+exec "$PYTHON" "$SCRIPT_DIR/../src/chat_phogpt_q8.py"
