@@ -44,7 +44,7 @@ sudo apt-get install ffmpeg
 sudo apt-get install alsa-utils libsndfile1
 ```
 
-The launcher does not download PhoGPT. Provision `PhoGPT-4B-Chat.Q4_K_M.gguf`
+The launcher downloads `PhoGPT-4B-Chat-Q4_K_M.gguf` automatically when it is missing.
 locally and set `PHOGPT_MODEL_PATH` to its path before starting the assistant.
 Kokoro is installed from `Kokoro-Vietnamese[onnx]` and may fetch its runtime
 assets on first use.
@@ -63,7 +63,7 @@ assets on first use.
 
 2. **Configure environment variables** (optional):
    ```bash
-   export PHOGPT_MODEL_PATH=/opt/models/PhoGPT-4B-Chat.Q4_K_M.gguf
+   export PHOGPT_MODEL_PATH=/opt/models/PhoGPT-4B-Chat-Q4_K_M.gguf
    export PHOGPT_CONTEXT=4096
    export PHOGPT_THREADS=4
    ```
@@ -107,7 +107,7 @@ voice.run_continuous()  # Continuous loop
 - Output: Plain text
 
 ### 3. LLM (PhoGPT)
-- Model: local `PhoGPT-4B-Chat.Q4_K_M.gguf` configured by `PHOGPT_MODEL_PATH`
+- Model: local `PhoGPT-4B-Chat-Q4_K_M.gguf` configured by `PHOGPT_MODEL_PATH`
 - Context: 4096 tokens
 - Temperature: 0.7
 - Max tokens: 256

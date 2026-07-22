@@ -44,7 +44,7 @@ sudo apt-get install ffmpeg
 sudo apt-get install alsa-utils libsndfile1
 ```
 
-Provision `PhoGPT-4B-Chat.Q4_K_M.gguf` separately and set
+The launcher downloads `PhoGPT-4B-Chat-Q4_K_M.gguf` automatically when it is missing.
 `PHOGPT_MODEL_PATH`; the application never downloads the GGUF automatically.
 
 **Windows:**
@@ -61,7 +61,7 @@ Provision `PhoGPT-4B-Chat.Q4_K_M.gguf` separately and set
 
 2. **Configure environment variables** (optional):
    ```bash
-   export PHOGPT_MODEL_PATH=/opt/models/PhoGPT-4B-Chat.Q4_K_M.gguf
+   export PHOGPT_MODEL_PATH=/opt/models/PhoGPT-4B-Chat-Q4_K_M.gguf
    export PHOGPT_CONTEXT=4096
    export PHOGPT_THREADS=4
    ```
@@ -105,7 +105,7 @@ voice.run_continuous()  # Continuous loop
 - Output: Plain text
 
 ### 3. LLM (PhoGPT)
-- Model: local `PhoGPT-4B-Chat.Q4_K_M.gguf` configured by `PHOGPT_MODEL_PATH`
+- Model: local `PhoGPT-4B-Chat-Q4_K_M.gguf` configured by `PHOGPT_MODEL_PATH`
 - Context: 4096 tokens
 - Temperature: 0.7
 - Max tokens: 256

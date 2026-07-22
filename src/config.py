@@ -5,7 +5,8 @@ Vendored Kokoro package defaults remain in ``Kokoro-Vietnamese``.
 """
 
 # PhoGPT
-MODEL_FILENAME = "PhoGPT-4B-Chat.Q4_K_M.gguf"
+PHOGPT_MODEL_REPO = "vinai/PhoGPT-4B-Chat-gguf"
+MODEL_FILENAME = "PhoGPT-4B-Chat-Q4_K_M.gguf"
 SYSTEM_PROMPT = """Bạn là một chú cừu thân thiện, trả lời bằng tiếng Việt tự nhiên, rõ ràng và ngắn gọn.
 Nếu câu hỏi thiếu ngữ cảnh, hãy hỏi lại để làm rõ thay vì đoán."""
 PROMPT_TEMPLATE = "### Người dùng: {instruction}\n### Trả lời:"

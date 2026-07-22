@@ -6,9 +6,9 @@ import os
 import threading
 
 try:
-    from .config import MODEL_FILENAME, PROMPT_TEMPLATE, SYSTEM_PROMPT
+    from .config import MODEL_FILENAME, PHOGPT_MODEL_REPO, PROMPT_TEMPLATE, SYSTEM_PROMPT
 except ImportError:
-    from src.config import MODEL_FILENAME, PROMPT_TEMPLATE, SYSTEM_PROMPT
+    from src.config import MODEL_FILENAME, PHOGPT_MODEL_REPO, PROMPT_TEMPLATE, SYSTEM_PROMPT
 
 _thinking_event = threading.Event()
 
@@ -30,7 +30,7 @@ def load_runtime_dependencies():
 
 
 def ensure_model(model_root: Path | None = None) -> Path:
-    """Resolve the already-provisioned GGUF without downloading it."""
+    """Resolve the Q4 GGUF, downloading it once when it is not present."""
     configured = os.environ.get("PHOGPT_MODEL_PATH")
     if configured:
         model_path = Path(configured).expanduser()
@@ -38,14 +38,36 @@ def ensure_model(model_root: Path | None = None) -> Path:
         root = model_root or Path(__file__).resolve().parent.parent
         model_path = root / "models" / MODEL_FILENAME
 
-    model_path = model_path.resolve()
-    if not model_path.is_file():
-        raise FileNotFoundError(
-            f"PhoGPT Q4 model not found at {model_path}. "
-            "Provision the model and set PHOGPT_MODEL_PATH; no model download is performed."
-        )
     if not model_path.name.endswith("Q4_K_M.gguf"):
         raise ValueError(f"PHOGPT_MODEL_PATH must point to a Q4_K_M.gguf file, got {model_path.name}")
+
+    model_path = model_path.resolve()
+    if not model_path.is_file():
+        if os.environ.get("PHOGPT_AUTO_DOWNLOAD", "1").lower() in {"0", "false", "no"}:
+            raise FileNotFoundError(
+                f"PhoGPT Q4 model not found at {model_path}. "
+                "Set PHOGPT_AUTO_DOWNLOAD=1 to download it automatically."
+            )
+
+        try:
+            from huggingface_hub import hf_hub_download
+        except ImportError as exc:
+            raise RuntimeError(
+                "huggingface-hub is required to download the PhoGPT Q4 model. "
+                "Install requirements-rpi.txt and try again."
+            ) from exc
+
+        model_path.parent.mkdir(parents=True, exist_ok=True)
+        print(f"PhoGPT Q4 model not found. Downloading {MODEL_FILENAME} from {PHOGPT_MODEL_REPO}...")
+        downloaded_path = hf_hub_download(
+            repo_id=PHOGPT_MODEL_REPO,
+            filename=MODEL_FILENAME,
+            local_dir=str(model_path.parent),
+        )
+        downloaded = Path(downloaded_path).resolve()
+        if downloaded != model_path:
+            downloaded.replace(model_path)
+
     return model_path
 
 
