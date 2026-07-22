@@ -42,34 +42,52 @@ def main(argv=None) -> None:
     # ------------------------------------------------------------------
     logger.info("Initializing components...")
 
+    # Project root setup for imports
+    repo_root = Path(__file__).resolve().parent.parent
+    if str(repo_root) not in sys.path:
+        sys.path.insert(0, str(repo_root))
+
     # Audio recorder
-    from .audio_recorder import AudioRecorder
+    try:
+        from .audio_recorder import AudioRecorder
+        from .vietnamese_stt import VietnameseSTT
+        from .chat_phogpt_q8 import PhoGPTChat
+        from .audio_player import AudioPlayer
+        from .voice_layer import create_spoken_response
+    except ImportError:
+        from src.audio_recorder import AudioRecorder
+        from src.vietnamese_stt import VietnameseSTT
+        from src.chat_phogpt_q8 import PhoGPTChat
+        from src.audio_player import AudioPlayer
+        from src.voice_layer import create_spoken_response
+
     recorder = AudioRecorder()
     logger.info("AudioRecorder ready.")
 
     # Speech-to-Text
-    from .vietnamese_stt import VietnameseSTT
     stt = VietnameseSTT(model_size=args.stt_model)
     logger.info("STT ready (model=%s).", args.stt_model)
 
     # LLM
-    model_root = Path(args.model_root) if args.model_root else None
-    from .chat_phogpt_q8 import PhoGPTChat
+    model_root = Path(args.model_root) if args.model_root else repo_root
     llm = PhoGPTChat(model_root=model_root)
     logger.info("PhoGPTChat ready.")
 
     # TTS (Kokoro Vietnamese — loaded once)
-    from kokoro_vietnamese import KokoroVietnamese
+    try:
+        from kokoro_vietnamese import KokoroVietnamese
+    except ImportError:
+        vendored_src = repo_root / "Kokoro-Vietnamese" / "src"
+        if vendored_src.is_dir() and str(vendored_src) not in sys.path:
+            sys.path.insert(0, str(vendored_src))
+        from kokoro_vietnamese import KokoroVietnamese
+
     tts = KokoroVietnamese(device=args.device, voice=args.voice)
     logger.info("Kokoro TTS ready (voice=%s, device=%s).", args.voice, args.device)
 
     # Audio player
-    from .audio_player import AudioPlayer
     player = AudioPlayer()
     logger.info("AudioPlayer ready.")
-
-    # Voice layer
-    from .voice_layer import create_spoken_response
 
     logger.info("All components initialized.  Starting conversation loop.")
     print("\n🐑 Talking Sheep sẵn sàng!  Nhấn Ctrl+C để thoát.\n")
