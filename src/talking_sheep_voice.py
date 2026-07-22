@@ -5,6 +5,7 @@ Initializes all components once and runs a sequential conversation loop:
 """
 
 import argparse
+import importlib
 import logging
 import sys
 from pathlib import Path
@@ -12,9 +13,55 @@ from pathlib import Path
 logger = logging.getLogger("talking_sheep")
 
 
+def run_once(recorder, stt, llm, tts, player, runtime_dir: Path, bleats_dir: Path) -> None:
+    """Run one complete microphone-to-speaker interaction.
+
+    Recording is performed before playback and never concurrently with it,
+    which prevents microphone feedback from the sheep's response.
+    """
+    try:
+        from .voice_layer import create_spoken_response
+    except ImportError:
+        from src.voice_layer import create_spoken_response
+
+    input_wav = recorder.capture_utterance(output_path=runtime_dir / "input.wav")
+    transcript = stt.transcribe(input_wav).strip()
+    if not transcript:
+        return
+
+    response = llm.generate_response(transcript).strip()
+    if not response:
+        return
+
+    final_wav = create_spoken_response(
+        response_text=response,
+        tts=tts,
+        bleats_dir=bleats_dir,
+        runtime_dir=runtime_dir,
+    )
+    player.play_blocking(str(final_wav))
+
+
+def run_conversation_loop(recorder, stt, llm, tts, player, runtime_dir: Path, bleats_dir: Path) -> None:
+    """Keep listening until interrupted, recovering from one-cycle errors."""
+    try:
+        while True:
+            try:
+                logger.info("Listening for the next utterance...")
+                run_once(recorder, stt, llm, tts, player, runtime_dir, bleats_dir)
+                logger.info("Cycle complete.")
+            except KeyboardInterrupt:
+                raise
+            except Exception:
+                logger.exception("Error in conversation cycle — recovering.")
+    except KeyboardInterrupt:
+        print("\n👋 Tạm biệt!")
+        logger.info("Exiting on Ctrl+C.")
+
+
 def parse_args(argv=None) -> argparse.Namespace:
     p = argparse.ArgumentParser(description="Talking Sheep voice loop")
-    p.add_argument("--voice", default="diem_trinh", help="Kokoro voice name")
+    p.add_argument("--voice", default="mai_linh", help="Kokoro voice name")
     p.add_argument("--device", default="cpu", choices=["cpu", "cuda"], help="TTS device")
     p.add_argument("--stt-model", default="tiny", help="Whisper model size")
     p.add_argument("--model-root", default=None, help="PhoGPT model root directory")
@@ -53,15 +100,15 @@ def main(argv=None) -> None:
     try:
         from .audio_recorder import AudioRecorder
         from .vietnamese_stt import VietnameseSTT
-        from .chat_phogpt_q8 import PhoGPTChat
+        from .chat_phogpt import PhoGPTChat
         from .audio_player import AudioPlayer
-        from .voice_layer import create_spoken_response
+        from .voice_layer import KokoroTTS
     except ImportError:
         from src.audio_recorder import AudioRecorder
         from src.vietnamese_stt import VietnameseSTT
-        from src.chat_phogpt_q8 import PhoGPTChat
+        from src.chat_phogpt import PhoGPTChat
         from src.audio_player import AudioPlayer
-        from src.voice_layer import create_spoken_response
+        from src.voice_layer import KokoroTTS
 
     recorder = AudioRecorder(device_index=args.input_device)
 
@@ -83,15 +130,13 @@ def main(argv=None) -> None:
     logger.info("PhoGPTChat ready.")
 
     # TTS (Kokoro Vietnamese — loaded once)
-    try:
-        from kokoro_vietnamese import KokoroVietnamese
-    except ImportError:
-        vendored_src = repo_root / "Kokoro-Vietnamese" / "src"
-        if vendored_src.is_dir() and str(vendored_src) not in sys.path:
-            sys.path.insert(0, str(vendored_src))
-        from kokoro_vietnamese import KokoroVietnamese
+    vendored_src = repo_root / "Kokoro-Vietnamese" / "src"
+    if vendored_src.is_dir() and str(vendored_src) not in sys.path:
+        sys.path.insert(0, str(vendored_src))
+    kokoro_class = importlib.import_module("kokoro_vietnamese").KokoroVietnamese
 
-    tts = KokoroVietnamese(device=args.device, voice=args.voice)
+    tts_engine = kokoro_class(device=args.device, voice=args.voice)
+    tts = KokoroTTS(tts_engine)
     logger.info("Kokoro TTS ready (voice=%s, device=%s).", args.voice, args.device)
 
     # Audio player
@@ -105,54 +150,7 @@ def main(argv=None) -> None:
     # Conversation loop
     # ------------------------------------------------------------------
     try:
-        while True:
-            try:
-                # 1. Record
-                input_wav = recorder.capture_utterance(
-                    output_path=runtime_dir / "input.wav",
-                )
-
-                # 2. Transcribe
-                logger.info("Transcribing...")
-                transcript = stt.transcribe(input_wav).strip()
-                if not transcript:
-                    logger.info("Empty transcript — returning to listening.")
-                    continue
-
-                logger.info("User: %s", transcript)
-
-                # 3. Generate response
-                logger.info("Generating LLM response...")
-                response = llm.generate_response(transcript).strip()
-                if not response:
-                    logger.warning("LLM returned empty response — returning to listening.")
-                    continue
-
-                logger.info("Sheep: %s", response)
-
-                # 4. Synthesize + compose with optional bleat
-                logger.info("Synthesizing speech...")
-                final_wav = create_spoken_response(
-                    response_text=response,
-                    tts=tts,
-                    bleats_dir=bleats_dir,
-                    runtime_dir=runtime_dir,
-                )
-
-                # 5. Play (recording is implicitly disabled — sequential flow)
-                logger.info("Playing response...")
-                player.play_blocking(str(final_wav))
-
-                logger.info("Cycle complete.")
-
-            except KeyboardInterrupt:
-                raise
-            except Exception:
-                logger.exception("Error in conversation cycle — recovering.")
-
-    except KeyboardInterrupt:
-        print("\n👋 Tạm biệt!")
-        logger.info("Exiting on Ctrl+C.")
+        run_conversation_loop(recorder, stt, llm, tts, player, runtime_dir, bleats_dir)
     finally:
         try:
             recorder.__del__()

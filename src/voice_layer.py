@@ -3,6 +3,8 @@
 import io
 import logging
 import re
+import secrets
+import wave
 from pathlib import Path
 from typing import Optional
 
@@ -24,6 +26,10 @@ SILENCE_MS = 100
 BLEAT_FADE_IN_MS = 25
 BLEAT_FADE_OUT_MS = 70
 BLEAT_VOLUME_DB = -3
+VOICE_NAME = "mai_linh"
+SPEAKING_SPEED = 1.0
+PAUSE_BEFORE_BLEAT_MS = SILENCE_MS
+PAUSE_AFTER_BLEAT_MS = SILENCE_MS
 
 
 # ---------------------------------------------------------------------------
@@ -70,8 +76,7 @@ def choose_bleat(bleats: list[Path]) -> Optional[Path]:
     if not bleats:
         return None
 
-    import random
-    return random.choice(bleats)
+    return secrets.choice(bleats)
 
 
 # ---------------------------------------------------------------------------
@@ -113,6 +118,29 @@ def numpy_to_segment(audio: np.ndarray, sample_rate: int) -> AudioSegment:
 # TTS synthesis
 # ---------------------------------------------------------------------------
 
+class KokoroTTS:
+    """Small application adapter around one loaded ``KokoroVietnamese`` model."""
+
+    def __init__(self, engine, speed: float = SPEAKING_SPEED):
+        self.engine = engine
+        self.speed = speed
+
+    def synthesize(self, text: str, output_path: str | Path | None = None):
+        """Synthesize text; optionally write a mono 24 kHz WAV file."""
+        audio_array, phonemes = self.engine.synthesize(text, speed=self.speed)
+        if output_path is not None:
+            audio = np.clip(audio_array, -1.0, 1.0)
+            pcm = (audio * 32767).astype(np.int16)
+            output = Path(output_path)
+            output.parent.mkdir(parents=True, exist_ok=True)
+            with wave.open(str(output), "wb") as wav_file:
+                wav_file.setnchannels(1)
+                wav_file.setsampwidth(2)
+                wav_file.setframerate(KOKORO_SAMPLE_RATE)
+                wav_file.writeframes(pcm.tobytes())
+            return None
+        return audio_array, phonemes
+
 def synthesize_sentences(tts, sentences: list[str]) -> list[AudioSegment]:
     """Call Kokoro TTS for each sentence.  Returns list of AudioSegments.
 
@@ -124,7 +152,10 @@ def synthesize_sentences(tts, sentences: list[str]) -> list[AudioSegment]:
     for i, sentence in enumerate(sentences):
         logger.info("Synthesizing sentence %d/%d: %.60s...", i + 1, len(sentences), sentence)
 
-        audio_array, _phonemes = tts.synthesize(sentence)
+        audio_result = tts.synthesize(sentence)
+        if audio_result is None:
+            raise RuntimeError("TTS adapter returned no in-memory audio for composition")
+        audio_array, _phonemes = audio_result
 
         if len(audio_array) == 0:
             logger.warning("TTS returned empty audio for sentence %d, skipping.", i + 1)
@@ -182,7 +213,9 @@ def compose_with_bleat(
         result += seg
 
         if bleat_segment is not None and i == bleat_after_index:
-            result += pause + bleat_segment + pause
+            before = AudioSegment.silent(duration=PAUSE_BEFORE_BLEAT_MS, frame_rate=TARGET_SAMPLE_RATE)
+            after = AudioSegment.silent(duration=PAUSE_AFTER_BLEAT_MS, frame_rate=TARGET_SAMPLE_RATE)
+            result += before + bleat_segment + after
 
     return result
 

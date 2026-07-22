@@ -1,15 +1,8 @@
 #!/usr/bin/env bash
-
 set -Eeuo pipefail
 
-SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
-if [[ -n "${VIRTUAL_ENV:-}" && -x "$VIRTUAL_ENV/bin/python" ]]; then
-    VENV_DIR="$VIRTUAL_ENV"
-else
-    VENV_DIR="$SCRIPT_DIR/.venv"
-fi
-
-PYTHON=""
+ROOT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
+VENV_DIR="${VENV_DIR:-$ROOT_DIR/.venv}"
 PYTHON_COMMAND="${PYTHON_COMMAND:-python3}"
 
 if [[ "$(getconf LONG_BIT)" != "64" ]]; then
@@ -22,30 +15,7 @@ if ! command -v "$PYTHON_COMMAND" >/dev/null 2>&1; then
     exit 1
 fi
 
-if [[ -x "$VENV_DIR/bin/python" ]]; then
-    PYTHON="$VENV_DIR/bin/python"
-elif [[ -x "$VENV_DIR/bin/python3" ]]; then
-    PYTHON="$VENV_DIR/bin/python3"
-fi
-
-venv_python_is_usable() {
-    local candidate="$1"
-    [[ -x "$candidate" ]] || return 1
-    "$candidate" -c 'import sys; print(sys.version_info[0])' >/dev/null 2>&1
-}
-
-if [[ -n "$PYTHON" ]] && ! venv_python_is_usable "$PYTHON"; then
-    echo "Found an unusable virtual environment at $VENV_DIR (often happens after copying between machines)."
-    echo "Recreating it for this device..."
-    rm -rf "$VENV_DIR"
-    PYTHON=""
-fi
-
-if [[ -z "$PYTHON" && -d "$VENV_DIR" ]]; then
-    rm -rf "$VENV_DIR"
-fi
-
-if [[ -z "$PYTHON" ]]; then
+if [[ ! -x "$VENV_DIR/bin/python" ]]; then
     echo "Creating a Python environment..."
     if ! "$PYTHON_COMMAND" -m venv "$VENV_DIR"; then
         echo "Unable to create a virtual environment. Install Python's venv support and try again."
@@ -53,27 +23,25 @@ if [[ -z "$PYTHON" ]]; then
         exit 1
     fi
 fi
+source "$VENV_DIR/bin/activate"
+PYTHON="$VENV_DIR/bin/python"
 
-if [[ -x "$VENV_DIR/bin/python" ]]; then
-    PYTHON="$VENV_DIR/bin/python"
-elif [[ -x "$VENV_DIR/bin/python3" ]]; then
-    PYTHON="$VENV_DIR/bin/python3"
+export PHOGPT_MODEL_PATH="${PHOGPT_MODEL_PATH:-$ROOT_DIR/models/PhoGPT-4B-Chat.Q4_K_M.gguf}"
+if [[ ! -f "$PHOGPT_MODEL_PATH" ]]; then
+    echo "Q4 PhoGPT model not found: $PHOGPT_MODEL_PATH" >&2
+    echo "Provision PhoGPT-4B-Chat.Q4_K_M.gguf and set PHOGPT_MODEL_PATH." >&2
+    exit 1
 fi
-
-if [[ ! -x "$PYTHON" ]]; then
-    echo "Python was not found in the virtual environment at: $VENV_DIR"
+if [[ "$PHOGPT_MODEL_PATH" != *Q4_K_M.gguf ]]; then
+    echo "PHOGPT_MODEL_PATH must end in Q4_K_M.gguf: $PHOGPT_MODEL_PATH" >&2
     exit 1
 fi
 
-if ! "$PYTHON" -m ensurepip --upgrade >/dev/null 2>&1; then
-    true
-fi
-
-if ! "$PYTHON" -c 'import huggingface_hub, llama_cpp' >/dev/null 2>&1; then
-    echo "Installing AI runtime packages. This happens only on the first run..."
+if ! "$PYTHON" -c 'import llama_cpp, kokoro_vietnamese' >/dev/null 2>&1; then
     "$PYTHON" -m pip install --upgrade pip setuptools wheel
-    "$PYTHON" -m pip install --prefer-binary --no-input -r "$SCRIPT_DIR/requirements-rpi.txt"
+    "$PYTHON" -m pip install --prefer-binary --no-input -r "$ROOT_DIR/requirements-rpi.txt"
+    "$PYTHON" -m pip install -e "$ROOT_DIR/Kokoro-Vietnamese[onnx]"
 fi
 
 export OMP_NUM_THREADS="${OMP_NUM_THREADS:-4}"
-exec "$PYTHON" "$SCRIPT_DIR/../src/chat_phogpt_q8.py"
+exec "$PYTHON" "$ROOT_DIR/src/talking_sheep_voice.py" "$@"

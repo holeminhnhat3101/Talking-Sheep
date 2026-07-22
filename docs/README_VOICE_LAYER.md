@@ -16,7 +16,7 @@ Microphone → VAD → STT → LLM → Sentence Splitter → Bleat Selection →
 - **`src/audio_recorder.py`**: Microphone capture with VAD (Voice Activity Detection)
 - **`src/vietnamese_stt.py`**: Vietnamese Speech-to-Text using Whisper
 - **`src/audio_player.py`**: WAV file playback
-- **`src/chat_phogpt_q8.py`**: PhoGPT LLM integration (enhanced with wrapper class)
+- **`src/chat_phogpt.py`**: PhoGPT Q4 LLM integration with application-level thinking status
 - **`src/talking_sheep_voice.py`**: Main orchestration layer
 
 ### Features
@@ -41,7 +41,11 @@ pip install -r requirements.txt
 ```bash
 sudo apt-get install portaudio19-dev
 sudo apt-get install ffmpeg
+sudo apt-get install alsa-utils libsndfile1
 ```
+
+Provision `PhoGPT-4B-Chat.Q4_K_M.gguf` separately and set
+`PHOGPT_MODEL_PATH`; the application never downloads the GGUF automatically.
 
 **Windows:**
 - PortAudio is included with pyaudio
@@ -57,6 +61,7 @@ sudo apt-get install ffmpeg
 
 2. **Configure environment variables** (optional):
    ```bash
+   export PHOGPT_MODEL_PATH=/opt/models/PhoGPT-4B-Chat.Q4_K_M.gguf
    export PHOGPT_CONTEXT=4096
    export PHOGPT_THREADS=4
    ```
@@ -100,7 +105,7 @@ voice.run_continuous()  # Continuous loop
 - Output: Plain text
 
 ### 3. LLM (PhoGPT)
-- Model: vinai/PhoGPT-4B-Chat-Q8_0.gguf
+- Model: local `PhoGPT-4B-Chat.Q4_K_M.gguf` configured by `PHOGPT_MODEL_PATH`
 - Context: 4096 tokens
 - Temperature: 0.7
 - Max tokens: 256
@@ -127,6 +132,13 @@ For better performance on Raspberry Pi:
 - Use `tiny` Whisper model
 - Reduce `PHOGPT_THREADS` to 2-4
 - Ensure adequate cooling
+
+## Voice and sheep character settings
+
+`VOICE_NAME` and the `--voice` option select the Kokoro voice (default:
+`diem_trinh`, Diễm Trinh). Sheep effects are centralized in
+`src/voice_layer.py`: `BLEAT_VOLUME_DB`, `BLEAT_FADE_IN_MS`,
+`BLEAT_FADE_OUT_MS`, `PAUSE_BEFORE_BLEAT_MS`, and `PAUSE_AFTER_BLEAT_MS`.
 
 ## Troubleshooting
 
