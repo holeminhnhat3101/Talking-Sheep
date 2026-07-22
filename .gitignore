@@ -1,4 +1,9 @@
 .venv/
-.cache/
 __pycache__/
-*.py[cod]
+*.pyc
+*.onnx
+*.pth
+*.pt
+runtime/
+outputs/
+*.wav
