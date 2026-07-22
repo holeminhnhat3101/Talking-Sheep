@@ -15,7 +15,6 @@ def load_runtime_dependencies():
     return huggingface_hub.hf_hub_download, llama_cpp.Llama
 
 
-hf_hub_download, Llama = load_runtime_dependencies()
 
 MODEL_REPO = "vinai/PhoGPT-4B-Chat-gguf"
 MODEL_FILENAME = "PhoGPT-4B-Chat-Q8_0.gguf"
@@ -26,13 +25,18 @@ Nếu câu hỏi thiếu ngữ cảnh, hãy hỏi lại để làm rõ thay vì 
 PROMPT_TEMPLATE = "### Người dùng: {instruction}\n### Trả lời:"
 
 
-def ensure_model(model_root: Path) -> Path:
+def ensure_model(model_root: Path, hf_hub_download=None) -> Path:
     cache_dir = model_root / ".cache" / "phogpt"
     cache_dir.mkdir(parents=True, exist_ok=True)
     model_path = cache_dir / MODEL_FILENAME
 
     if model_path.exists():
         return model_path
+
+    if hf_hub_download is None:
+        raise RuntimeError(
+            f"Model not found at {model_path} and no download function available."
+        )
 
     downloaded_path = hf_hub_download(
         repo_id=MODEL_REPO,
@@ -59,11 +63,13 @@ class PhoGPTChat:
     """Wrapper for PhoGPT chat functionality."""
     
     def __init__(self, model_root: Path = None):
+        hf_hub_download, Llama = load_runtime_dependencies()
+
         if model_root is None:
             model_root = Path(__file__).resolve().parent
         
         self.model_root = model_root
-        self.model_path = ensure_model(model_root)
+        self.model_path = ensure_model(model_root, hf_hub_download)
         n_ctx = int(os.environ.get("PHOGPT_CONTEXT", "4096"))
         n_threads = int(os.environ.get("PHOGPT_THREADS", str(os.cpu_count() or 4)))
         
@@ -94,8 +100,10 @@ class PhoGPTChat:
 
 
 def main() -> None:
+    hf_hub_download, Llama = load_runtime_dependencies()
+
     model_root = Path(__file__).resolve().parent
-    model_path = ensure_model(model_root)
+    model_path = ensure_model(model_root, hf_hub_download)
     n_ctx = int(os.environ.get("PHOGPT_CONTEXT", "4096"))
     n_threads = int(os.environ.get("PHOGPT_THREADS", str(os.cpu_count() or 4)))
 
