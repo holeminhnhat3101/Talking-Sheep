@@ -10,6 +10,25 @@ import logging
 import sys
 from pathlib import Path
 
+try:
+    from .config import (
+        DEFAULT_BLEATS_DIR,
+        DEFAULT_DEVICE,
+        DEFAULT_LOG_LEVEL,
+        DEFAULT_RUNTIME_DIR,
+        DEFAULT_STT_MODEL,
+        DEFAULT_VOICE,
+    )
+except ImportError:
+    from src.config import (
+        DEFAULT_BLEATS_DIR,
+        DEFAULT_DEVICE,
+        DEFAULT_LOG_LEVEL,
+        DEFAULT_RUNTIME_DIR,
+        DEFAULT_STT_MODEL,
+        DEFAULT_VOICE,
+    )
+
 logger = logging.getLogger("talking_sheep")
 
 
@@ -61,15 +80,15 @@ def run_conversation_loop(recorder, stt, llm, tts, player, runtime_dir: Path, bl
 
 def parse_args(argv=None) -> argparse.Namespace:
     p = argparse.ArgumentParser(description="Talking Sheep voice loop")
-    p.add_argument("--voice", default="mai_linh", help="Kokoro voice name")
-    p.add_argument("--device", default="cpu", choices=["cpu", "cuda"], help="TTS device")
-    p.add_argument("--stt-model", default="tiny", help="Whisper model size")
+    p.add_argument("--voice", default=DEFAULT_VOICE, help="Kokoro voice name")
+    p.add_argument("--device", default=DEFAULT_DEVICE, choices=["cpu", "cuda"], help="TTS device")
+    p.add_argument("--stt-model", default=DEFAULT_STT_MODEL, help="Whisper model size")
     p.add_argument("--model-root", default=None, help="PhoGPT model root directory")
-    p.add_argument("--bleats-dir", default="assets/bleats", help="Path to bleat WAV files")
-    p.add_argument("--runtime-dir", default="runtime", help="Directory for temporary WAVs")
+    p.add_argument("--bleats-dir", default=DEFAULT_BLEATS_DIR, help="Path to bleat WAV files")
+    p.add_argument("--runtime-dir", default=DEFAULT_RUNTIME_DIR, help="Directory for temporary WAVs")
     p.add_argument("--input-device", type=int, default=None, help="Microphone input device index for PortAudio/ALSA")
     p.add_argument("--list-mics", action="store_true", help="List detected microphones and exit")
-    p.add_argument("--log-level", default="INFO", help="Logging level")
+    p.add_argument("--log-level", default=DEFAULT_LOG_LEVEL, help="Logging level")
     return p.parse_args(argv)
 
 

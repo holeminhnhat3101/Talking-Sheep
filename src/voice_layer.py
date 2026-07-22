@@ -11,26 +11,40 @@ from typing import Optional
 import numpy as np
 from pydub import AudioSegment
 
+try:
+    from .config import (
+        BLEAT_FADE_IN_MS,
+        BLEAT_FADE_OUT_MS,
+        BLEAT_VOLUME_DB,
+        KOKORO_SAMPLE_RATE,
+        PAUSE_AFTER_BLEAT_MS,
+        PAUSE_BEFORE_BLEAT_MS,
+        SILENCE_MS,
+        SPEAKING_SPEED,
+        TARGET_CHANNELS,
+        TARGET_SAMPLE_RATE,
+        TARGET_SAMPLE_WIDTH,
+    )
+except ImportError:
+    from src.config import (
+        BLEAT_FADE_IN_MS,
+        BLEAT_FADE_OUT_MS,
+        BLEAT_VOLUME_DB,
+        KOKORO_SAMPLE_RATE,
+        PAUSE_AFTER_BLEAT_MS,
+        PAUSE_BEFORE_BLEAT_MS,
+        SILENCE_MS,
+        SPEAKING_SPEED,
+        TARGET_CHANNELS,
+        TARGET_SAMPLE_RATE,
+        TARGET_SAMPLE_WIDTH,
+    )
+
 logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
 # Constants
 # ---------------------------------------------------------------------------
-
-KOKORO_SAMPLE_RATE = 24000
-TARGET_SAMPLE_RATE = 24000
-TARGET_CHANNELS = 1
-TARGET_SAMPLE_WIDTH = 2  # 16-bit
-
-SILENCE_MS = 100
-BLEAT_FADE_IN_MS = 25
-BLEAT_FADE_OUT_MS = 70
-BLEAT_VOLUME_DB = -3
-VOICE_NAME = "mai_linh"
-SPEAKING_SPEED = 1.0
-PAUSE_BEFORE_BLEAT_MS = SILENCE_MS
-PAUSE_AFTER_BLEAT_MS = SILENCE_MS
-
 
 # ---------------------------------------------------------------------------
 # Sentence splitting
