@@ -332,11 +332,19 @@ class AudioRecorder:
 
             while True:
                 try:
+                    # Avoid blocking indefinitely inside PortAudio so Ctrl+C works.
+                    while stream.get_read_available() < self.chunk_size:
+                        time.sleep(0.01)
+
                     data = stream.read(
                         self.chunk_size,
                         exception_on_overflow=False,
                     )
                     read_errors = 0
+
+                except KeyboardInterrupt:
+                    raise
+
                 except (IOError, OSError) as exc:
                     read_errors += 1
                     if read_errors >= 3:
@@ -363,6 +371,7 @@ class AudioRecorder:
                     consecutive_speech = (
                         consecutive_speech + 1 if rms >= threshold else 0
                     )
+
                     if consecutive_speech < self.speech_start_chunks:
                         continue
 
@@ -382,15 +391,25 @@ class AudioRecorder:
                     if trailing_silence >= silence_chunks_needed:
                         break
 
-                if time.monotonic() - recording_started >= self.max_recording_duration:
+                if (
+                    time.monotonic() - recording_started
+                    >= self.max_recording_duration
+                ):
                     break
 
             speech_duration = speech_chunks * chunk_seconds
             if speech_duration < self.min_speech_duration:
-                logger.info("Speech was too short: %.2f seconds", speech_duration)
+                logger.info(
+                    "Speech was too short: %.2f seconds",
+                    speech_duration,
+                )
                 return None
 
-            native = self._decode(b"".join(frames), audio_format, channels)
+            native = self._decode(
+                b"".join(frames),
+                audio_format,
+                channels,
+            )
 
             if self.save_native_debug:
                 native_path = output_path.with_name(
@@ -400,11 +419,20 @@ class AudioRecorder:
                     native_wav.setnchannels(channels)
                     native_wav.setsampwidth(2)
                     native_wav.setframerate(rate)
-                    native_wav.writeframes(self._to_int16(native).tobytes())
-                logger.info("Saved native debug capture to %s", native_path)
+                    native_wav.writeframes(
+                        self._to_int16(native).tobytes()
+                    )
+                logger.info(
+                    "Saved native debug capture to %s",
+                    native_path,
+                )
 
             mono = self._select_channel(native)
-            mono = self._resample(mono, rate, self.sample_rate)
+            mono = self._resample(
+                mono,
+                rate,
+                self.sample_rate,
+            )
             pcm = self._to_int16(mono)
 
             with wave.open(str(output_path), "wb") as wav_file:
@@ -436,10 +464,12 @@ class AudioRecorder:
                     stream.stop_stream()
                 except Exception:
                     pass
+
                 try:
                     stream.close()
                 except Exception:
                     pass
+
             self.device_selector = old_selector
 
     def _calibrate_threshold(self, stream: pyaudio.Stream, config: dict) -> float:
