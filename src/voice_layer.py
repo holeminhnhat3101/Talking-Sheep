@@ -1,9 +1,7 @@
 """Voice layer: sentence splitting, TTS synthesis, bleat insertion, audio composition."""
 
-import io
 import logging
 import re
-import secrets
 import wave
 import random
 from pathlib import Path
@@ -95,11 +93,7 @@ def discover_bleats(bleats_dir: Path) -> list[Path]:
 
 
 def choose_bleat(bleats: list[Path]) -> Optional[Path]:
-    """Pick one bleat file from the available list.  Return None if empty."""
-    if not bleats:
-        return None
-
-    return secrets.choice(bleats)
+    return random.choice(bleats) if bleats else None
 
 
 # ---------------------------------------------------------------------------
@@ -231,14 +225,23 @@ def compose_with_bleat(
             bleat_segment = None
 
     for i, seg in enumerate(sentence_segments):
-        if i > 0:
+        if i > 0 and not (
+            bleat_segment is not None
+            and i - 1 == bleat_after_index
+        ):
             result += pause
 
         result += seg
 
         if bleat_segment is not None and i == bleat_after_index:
-            before = AudioSegment.silent(duration=PAUSE_BEFORE_BLEAT_MS, frame_rate=TARGET_SAMPLE_RATE)
-            after = AudioSegment.silent(duration=PAUSE_AFTER_BLEAT_MS, frame_rate=TARGET_SAMPLE_RATE)
+            before = AudioSegment.silent(
+                duration=PAUSE_BEFORE_BLEAT_MS,
+                frame_rate=TARGET_SAMPLE_RATE,
+            )
+            after = AudioSegment.silent(
+                duration=PAUSE_AFTER_BLEAT_MS,
+                frame_rate=TARGET_SAMPLE_RATE,
+            )
             result += before + bleat_segment + after
 
     return result

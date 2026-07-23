@@ -35,31 +35,31 @@ def _device(name: str) -> int | None:
         ) from exc
 
 
-# PhoGPT
-PHOGPT_MODEL_REPO = "vinai/PhoGPT-4B-Chat-gguf"
-MODEL_FILENAME = "PhoGPT-4B-Chat-Q4_K_M.gguf"
+# Local LLM
+LLM_MODEL_REPO = "ggml-org/Qwen3-1.7B-GGUF"
+LLM_MODEL_FILENAME = "Qwen3-1.7B-Q4_K_M.gguf"
 
-SYSTEM_PROMPT = """Bạn là một con cừu thân thiện.
-Luôn cố gắng suy ra ý định từ câu nói có lỗi nhận dạng giọng nói.
-Nếu câu vẫn hiểu được thì trả lời trực tiếp, không xin lỗi hoặc yêu cầu nói lại.
-Trả lời tối đa 3 câu bằng tiếng Việt."""
+LLM_SYSTEM_PROMPT = """Bạn là một con cừu thân thiện.
+Tự sửa lỗi nhận dạng giọng nói khi ý nghĩa vẫn rõ.
+Trả lời trực tiếp bằng tiếng Việt.
+Không xin lỗi hoặc yêu cầu nói lại nếu đã hiểu chủ đề.
+Trả lời từ 1 đến 5 câu tùy độ phức tạp.
+/no_think"""
 
-PROMPT_TEMPLATE = "### Câu hỏi: {instruction}\n### Trả lời:"
-
-PHOGPT_MAX_TOKENS = 80
-PHOGPT_TEMPERATURE = 0.3
-PHOGPT_TOP_P = 0.9
-PHOGPT_REPEAT_PENALTY = 1.06
-PHOGPT_HISTORY_MAXLEN = 4
-PHOGPT_N_BATCH_MAX = 256
-PHOGPT_CONTEXT = 1024
+LLM_MAX_TOKENS = 128
+LLM_TEMPERATURE = 0.7
+LLM_TOP_P = 0.8
+LLM_REPEAT_PENALTY = 1.05
+LLM_HISTORY_MAXLEN = 4
+LLM_N_BATCH_MAX = 256
+LLM_CONTEXT = 1024
 
 
-# PhoWhisper
-DEFAULT_STT_MODEL = "tiny"
-WHISPER_ALLOWED_MODELS = ("tiny", "base")
+# Speech-to-text
+STT_DEFAULT_MODEL = "tiny"
+STT_ALLOWED_MODELS = ("tiny", "base")
 
-PHOWHISPER_MODEL_IDS = {
+STT_MODEL_IDS = {
     "tiny": "vinai/PhoWhisper-tiny",
     "base": "vinai/PhoWhisper-base",
 }
@@ -71,8 +71,8 @@ TARGET_SAMPLE_RATE = 24000
 TARGET_CHANNELS = 1
 TARGET_SAMPLE_WIDTH = 2
 
-WHISPER_SAMPLE_RATE = 16000
-WHISPER_CHANNELS = 1
+STT_SAMPLE_RATE = 16000
+STT_CHANNELS = 1
 
 AUDIO_CHUNK_SIZE = 1024
 DEFAULT_INPUT_WAV = "input.wav"

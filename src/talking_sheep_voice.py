@@ -5,8 +5,8 @@ Initializes all components once and runs a sequential conversation loop:
     microphone
     → native-format negotiation
     → optional multichannel/spatial processing
-    → 16 kHz mono Whisper input
-    → PhoGPT
+    → 16 kHz mono PhoWhisper input
+    → LLM
     → Kokoro TTS + optional bleat
     → synchronous playback
     → repeat
@@ -49,7 +49,6 @@ try:
         DEFAULT_DEVICE,
         DEFAULT_LOG_LEVEL,
         DEFAULT_RUNTIME_DIR,
-        DEFAULT_STT_MODEL,
         DEFAULT_VOICE,
         DEFAULT_INPUT_WAV,
         MAX_RECORDING_DURATION,
@@ -59,6 +58,7 @@ try:
         PRE_ROLL_DURATION,
         SILENCE_DURATION,
         SILENCE_THRESHOLD,
+        STT_DEFAULT_MODEL,
     )
 except ImportError:
     from src.config import (
@@ -79,7 +79,6 @@ except ImportError:
         DEFAULT_DEVICE,
         DEFAULT_LOG_LEVEL,
         DEFAULT_RUNTIME_DIR,
-        DEFAULT_STT_MODEL,
         DEFAULT_VOICE,
         DEFAULT_INPUT_WAV,
         MAX_RECORDING_DURATION,
@@ -89,6 +88,7 @@ except ImportError:
         PRE_ROLL_DURATION,
         SILENCE_DURATION,
         SILENCE_THRESHOLD,
+        STT_DEFAULT_MODEL,
     )
 
 
@@ -228,11 +228,6 @@ def run_once(
         logger.debug("No usable speech was captured.")
         return False
 
-    spatial_metadata = getattr(recorder, "last_spatial_metadata", None)
-    if spatial_metadata is not None:
-        # Future microphone-array processors can return direction-of-arrival
-        # or beamforming metadata without changing the conversation pipeline.
-        logger.debug("Spatial microphone metadata: %r", spatial_metadata)
 
     transcript = stt.transcribe(input_wav).strip()
     if not transcript:
@@ -243,7 +238,7 @@ def run_once(
 
     response = llm.generate_response(transcript).strip()
     if not response:
-        logger.warning("PhoGPT produced no usable response.")
+        logger.warning("LLM produced no usable response.")
         return False
 
     final_wav = create_spoken_response(
@@ -366,13 +361,13 @@ def parse_args(argv: Optional[list[str]] = None) -> argparse.Namespace:
     )
     parser.add_argument(
         "--stt-model",
-        default=DEFAULT_STT_MODEL,
-        help="Whisper model size",
+        default=STT_DEFAULT_MODEL,
+        help="PhoWhisper model size",
     )
     parser.add_argument(
         "--model-root",
         default=None,
-        help="PhoGPT model root directory",
+        help="LLM model root directory",
     )
     parser.add_argument(
         "--bleats-dir",
@@ -520,13 +515,13 @@ def main(argv: Optional[list[str]] = None) -> None:
     try:
         from .audio_player import AudioPlayer
         from .audio_recorder import AudioRecorder
-        from .chat_phogpt import PhoGPTChat
+        from .chat_llm import LLMChat
         from .vietnamese_stt import VietnameseSTT
         from .voice_layer import KokoroTTS
     except ImportError:
         from src.audio_player import AudioPlayer
         from src.audio_recorder import AudioRecorder
-        from src.chat_phogpt import PhoGPTChat
+        from src.chat_llm import LLMChat
         from src.vietnamese_stt import VietnameseSTT
         from src.voice_layer import KokoroTTS
 
@@ -584,14 +579,14 @@ def main(argv: Optional[list[str]] = None) -> None:
             "auto" if args.silence_threshold is None else args.silence_threshold,
         )
 
-        # Persistent Whisper model.
+        # Persistent PhoWhisper model.
         stt = VietnameseSTT(model_size=args.stt_model)
         logger.info("STT ready (model=%s).", args.stt_model)
 
-        # Persistent PhoGPT model.
+        # Persistent LLM model.
         model_root = Path(args.model_root) if args.model_root else REPO_ROOT
-        llm = PhoGPTChat(model_root=model_root)
-        logger.info("PhoGPTChat ready.")
+        llm = LLMChat(model_root=model_root)
+        logger.info("LLMChat ready.")
 
         # Persistent Kokoro engine.
         vendored_src = REPO_ROOT / "Kokoro-Vietnamese" / "src"

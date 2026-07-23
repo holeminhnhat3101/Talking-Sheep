@@ -45,11 +45,11 @@ VENV_INCLUDE="$($PYTHON -c 'import os,sysconfig; print(os.path.join(sysconfig.ge
 pkg-config --exists portaudio-2.0 || fail "PortAudio development headers are unavailable."
 
 mkdir -p runtime models assets/bleats
-export PHOGPT_MODEL_PATH="${PHOGPT_MODEL_PATH:-$ROOT_DIR/models/PhoGPT-4B-Chat-Q4_K_M.gguf}"
+export LLM_MODEL_PATH="${LLM_MODEL_PATH:-$ROOT_DIR/models/Qwen3-1.7B-Q4_K_M.gguf}"
 export OMP_NUM_THREADS="${OMP_NUM_THREADS:-4}"
 
 general_missing=()
-for module in llama_cpp numpy pydub pyaudio sounddevice whisper; do
+for module in llama_cpp numpy pydub pyaudio; do
     if ! "$PYTHON" -c "import importlib.util; raise SystemExit(0 if importlib.util.find_spec('$module') else 1)"; then
         general_missing+=("$module")
     fi
@@ -69,16 +69,9 @@ else
     log SKIP "Kokoro ONNX support already installed."
 fi
 
-"$PYTHON" - <<'PY' || fail "Whisper validation failed."
-import whisper
-from importlib.metadata import version
-assert hasattr(whisper, "load_model")
-version("openai-whisper")
-PY
-
-"$PYTHON" - <<'PY' || fail "PhoGPT model setup failed."
-from src.chat_phogpt import ensure_model
+"$PYTHON" - <<'PY' || fail "LLM model setup failed."
+from src.chat_llm import ensure_model
 ensure_model()
 PY
-log READY "Dependencies and PhoGPT model are ready."
+log READY "Dependencies and LLM model are ready."
 exec "$PYTHON" -m src.talking_sheep_voice "$@"

@@ -5,13 +5,13 @@ try:
     from .config import (
         DEFAULT_STT_MODEL,
         PHOWHISPER_MODEL_IDS,
-        WHISPER_ALLOWED_MODELS,
+        PHOWHISPER_ALLOWED_MODELS,
     )
 except ImportError:
     from src.config import (
         DEFAULT_STT_MODEL,
         PHOWHISPER_MODEL_IDS,
-        WHISPER_ALLOWED_MODELS,
+        PHOWHISPER_ALLOWED_MODELS,
     )
 
 
@@ -20,14 +20,14 @@ class VietnameseSTT:
 
     def __init__(self, model_size: str | None = None):
         model_size = model_size or os.getenv(
-            "WHISPER_MODEL",
+            "PHOWHISPER_MODEL",
             DEFAULT_STT_MODEL,
         )
 
-        if model_size not in WHISPER_ALLOWED_MODELS:
+        if model_size not in PHOWHISPER_ALLOWED_MODELS:
             raise ValueError(
-                f"WHISPER_MODEL must be one of: "
-                f"{', '.join(WHISPER_ALLOWED_MODELS)}"
+                f"PHOWHISPER_MODEL must be one of: "
+                f"{', '.join(PHOWHISPER_ALLOWED_MODELS)}"
             )
 
         try:
