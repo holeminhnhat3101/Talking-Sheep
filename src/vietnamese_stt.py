@@ -3,15 +3,15 @@ import os
 
 try:
     from .config import (
-        DEFAULT_STT_MODEL,
-        PHOWHISPER_MODEL_IDS,
-        PHOWHISPER_ALLOWED_MODELS,
+        STT_DEFAULT_MODEL,
+        STT_MODEL_IDS,
+        STT_ALLOWED_MODELS,
     )
 except ImportError:
     from src.config import (
-        DEFAULT_STT_MODEL,
-        PHOWHISPER_MODEL_IDS,
-        PHOWHISPER_ALLOWED_MODELS,
+        STT_DEFAULT_MODEL,
+        STT_MODEL_IDS,
+        STT_ALLOWED_MODELS,
     )
 
 
@@ -21,13 +21,13 @@ class VietnameseSTT:
     def __init__(self, model_size: str | None = None):
         model_size = model_size or os.getenv(
             "PHOWHISPER_MODEL",
-            DEFAULT_STT_MODEL,
+            STT_DEFAULT_MODEL,
         )
 
-        if model_size not in PHOWHISPER_ALLOWED_MODELS:
+        if model_size not in STT_ALLOWED_MODELS:
             raise ValueError(
                 f"PHOWHISPER_MODEL must be one of: "
-                f"{', '.join(PHOWHISPER_ALLOWED_MODELS)}"
+                f"{', '.join(STT_ALLOWED_MODELS)}"
             )
 
         try:
@@ -38,7 +38,7 @@ class VietnameseSTT:
                 "Install requirements-rpi.txt."
             ) from exc
 
-        model_id = PHOWHISPER_MODEL_IDS[model_size]
+        model_id = STT_MODEL_IDS[model_size]
         print(f"Loading PhoWhisper model: {model_id}")
 
         self.pipe = pipeline(

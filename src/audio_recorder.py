@@ -30,8 +30,8 @@ try:
         PRE_ROLL_DURATION,
         SILENCE_DURATION,
         SILENCE_THRESHOLD,
-        WHISPER_CHANNELS,
-        WHISPER_SAMPLE_RATE,
+        STT_CHANNELS,
+        STT_SAMPLE_RATE,
     )
 except ImportError:
     from src.config import (
@@ -53,8 +53,8 @@ except ImportError:
         PRE_ROLL_DURATION,
         SILENCE_DURATION,
         SILENCE_THRESHOLD,
-        WHISPER_CHANNELS,
-        WHISPER_SAMPLE_RATE,
+        STT_CHANNELS,
+        STT_SAMPLE_RATE,
     )
 
 logger = logging.getLogger(__name__)
@@ -69,8 +69,8 @@ class AudioRecorder:
 
     def __init__(
         self,
-        sample_rate: int = WHISPER_SAMPLE_RATE,
-        channels: int = WHISPER_CHANNELS,
+        sample_rate: int = STT_SAMPLE_RATE,
+        channels: int = STT_CHANNELS,
         chunk_size: int = AUDIO_CHUNK_SIZE,
         device_index: int | str | None = None,
         pre_roll_duration: float = PRE_ROLL_DURATION,
@@ -199,7 +199,7 @@ class AudioRecorder:
                 44100,
                 32000,
                 self.sample_rate,
-                WHISPER_SAMPLE_RATE,
+                STT_SAMPLE_RATE,
             ]
         )
         channel_counts = self._unique(
