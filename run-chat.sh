@@ -1,8 +1,7 @@
 #!/usr/bin/env bash
 set -Eeuo pipefail
 
-SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
-ROOT_DIR="$(cd -- "$SCRIPT_DIR/.." && pwd)"
+ROOT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 
 VENV_DIR="${VENV_DIR:-$ROOT_DIR/.venv}"
 PYTHON_COMMAND="${PYTHON_COMMAND:-python3}"
@@ -10,7 +9,7 @@ PYTHON_COMMAND="${PYTHON_COMMAND:-python3}"
 cd "$ROOT_DIR"
 
 if [[ "$(getconf LONG_BIT)" != "64" ]]; then
-    echo "Error: Talking Sheep requires 64-bit Raspberry Pi OS."
+    echo "Error: This model requires 64-bit Raspberry Pi OS. Install the 64-bit edition and try again."
     exit 1
 fi
 
@@ -72,6 +71,7 @@ if ! dependencies_ready; then
     echo "Installing Raspberry Pi dependencies..."
 
     "$PYTHON" -m pip install --upgrade pip setuptools wheel
+
     "$PIP" install \
         --prefer-binary \
         --no-input \
