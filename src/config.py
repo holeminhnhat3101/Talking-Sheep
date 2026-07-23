@@ -4,6 +4,28 @@ Edit this file to change model, voice, audio, and sheep-effect settings.
 Vendored Kokoro package defaults remain in ``Kokoro-Vietnamese``.
 """
 
+import os
+
+
+def _float(name: str, default: float, minimum: float | None = None, maximum: float | None = None) -> float:
+    try:
+        value = float(os.environ.get(name, default))
+    except (TypeError, ValueError) as exc:
+        raise ValueError(f"{name} must be numeric") from exc
+    if minimum is not None and value < minimum or maximum is not None and value > maximum:
+        raise ValueError(f"{name} is outside the valid range")
+    return value
+
+
+def _device(name: str) -> int | None:
+    value = os.environ.get(name)
+    if value in (None, ""):
+        return None
+    try:
+        return int(value)
+    except ValueError as exc:
+        raise ValueError(f"{name} must be an integer device index or unset") from exc
+
 # PhoGPT
 PHOGPT_MODEL_REPO = "vinai/PhoGPT-4B-Chat-gguf"
 MODEL_FILENAME = "PhoGPT-4B-Chat-Q4_K_M.gguf"
@@ -57,9 +79,9 @@ KokoroVietnamese = importlib.import_module("kokoro_vietnamese").KokoroVietnamese
 
 engine = KokoroVietnamese(
     device="cpu",
-    voice="manh_dung",
+    voice="manh_dung", 
     model_path=cache / "kokoro_vi.pth",
-    voicepack_path=cache / "voicepacks" / "manh_dung.pt",
+    voicepack_path=cache / "voicepacks" / "manh_dung.pt", 
     config_path=cache / "config.json",
 )
 
@@ -94,3 +116,13 @@ PAUSE_AFTER_BLEAT_MS = SILENCE_MS
 DEFAULT_BLEATS_DIR = "assets/bleats"
 DEFAULT_RUNTIME_DIR = "runtime"
 DEFAULT_LOG_LEVEL = "INFO"
+
+# Parsed once at import/startup.
+AUDIO_INPUT_DEVICE = _device("AUDIO_INPUT_DEVICE")
+AUDIO_OUTPUT_DEVICE = _device("AUDIO_OUTPUT_DEVICE")
+SILENCE_THRESHOLD = _float("SILENCE_THRESHOLD", 500, 0)
+SILENCE_DURATION = _float("SILENCE_DURATION", 1.0, 0)
+MIN_SPEECH_DURATION = _float("MIN_SPEECH_DURATION", 0.3, 0)
+MAX_RECORDING_DURATION = _float("MAX_RECORDING_DURATION", 15.0, 0)
+PRE_ROLL_DURATION = _float("PRE_ROLL_DURATION", 0.25, 0)
+BLEAT_PROBABILITY = _float("BLEAT_PROBABILITY", 0.30, 0, 1)

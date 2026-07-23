@@ -4,6 +4,8 @@ from pathlib import Path
 import importlib
 import os
 import threading
+import shutil
+from collections import deque
 
 try:
     from .config import MODEL_FILENAME, PHOGPT_MODEL_REPO, PROMPT_TEMPLATE, SYSTEM_PROMPT
@@ -59,21 +61,23 @@ def ensure_model(model_root: Path | None = None) -> Path:
 
         model_path.parent.mkdir(parents=True, exist_ok=True)
         print(f"PhoGPT Q4 model not found. Downloading {MODEL_FILENAME} from {PHOGPT_MODEL_REPO}...")
+        part_path = model_path.with_name(model_path.name + ".part")
+        if part_path.exists():
+            part_path.unlink()
         downloaded_path = hf_hub_download(
             repo_id=PHOGPT_MODEL_REPO,
             filename=MODEL_FILENAME,
-            local_dir=str(model_path.parent),
+            local_dir=str(model_path.parent / ".hf-cache"),
         )
-        downloaded = Path(downloaded_path).resolve()
-        if downloaded != model_path:
-            downloaded.replace(model_path)
+        shutil.copyfile(downloaded_path, part_path)
+        part_path.replace(model_path)
 
     return model_path
 
 
-def build_prompt(history: list[tuple[str, str]], user_prompt: str) -> str:
+def build_prompt(history, user_prompt: str) -> str:
     parts = [SYSTEM_PROMPT.strip()]
-    for previous_user, previous_assistant in history[-4:]:
+    for previous_user, previous_assistant in list(history)[-4:]:
         parts.append(
             f"### Câu hỏi: {previous_user.strip()}\n### Trả lời: {previous_assistant.strip()}"
         )
@@ -96,7 +100,7 @@ class PhoGPTChat:
             n_batch=min(512, n_ctx),
             verbose=False,
         )
-        self.history: list[tuple[str, str]] = []
+        self.history: deque[tuple[str, str]] = deque(maxlen=4)
 
     def _generate_response_internal(self, user_prompt: str) -> str:
         prompt_text = build_prompt(self.history, user_prompt)
@@ -109,7 +113,8 @@ class PhoGPTChat:
             stop=["### Câu hỏi:"],
         )
         reply = output["choices"][0]["text"].strip()
-        self.history.append((user_prompt, reply))
+        if reply:
+            self.history.append((user_prompt, reply))
         return reply
 
     def generate_response(self, user_prompt: str) -> str:

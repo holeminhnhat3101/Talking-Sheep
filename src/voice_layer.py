@@ -5,6 +5,7 @@ import logging
 import re
 import secrets
 import wave
+import random
 from pathlib import Path
 from typing import Optional
 
@@ -16,6 +17,7 @@ try:
         BLEAT_FADE_IN_MS,
         BLEAT_FADE_OUT_MS,
         BLEAT_VOLUME_DB,
+        BLEAT_PROBABILITY,
         KOKORO_SAMPLE_RATE,
         PAUSE_AFTER_BLEAT_MS,
         PAUSE_BEFORE_BLEAT_MS,
@@ -30,6 +32,7 @@ except ImportError:
         BLEAT_FADE_IN_MS,
         BLEAT_FADE_OUT_MS,
         BLEAT_VOLUME_DB,
+        BLEAT_PROBABILITY,
         KOKORO_SAMPLE_RATE,
         PAUSE_AFTER_BLEAT_MS,
         PAUSE_BEFORE_BLEAT_MS,
@@ -116,6 +119,7 @@ def normalize_segment(
 def numpy_to_segment(audio: np.ndarray, sample_rate: int) -> AudioSegment:
     """Convert a float32 numpy array to a pydub AudioSegment (16-bit mono)."""
     # Clip and scale float32 [-1, 1] to int16
+    audio = np.asarray(audio, dtype=np.float32).reshape(-1)
     audio = np.clip(audio, -1.0, 1.0)
     pcm = (audio * 32767).astype(np.int16)
 
@@ -270,7 +274,7 @@ def create_spoken_response(
 
     # Bleat
     bleats = discover_bleats(bleats_dir)
-    bleat_path = choose_bleat(bleats)
+    bleat_path = choose_bleat(bleats) if len(sentences) >= 2 and random.random() < BLEAT_PROBABILITY else None
 
     # Compose
     final_audio = compose_with_bleat(

@@ -1,12 +1,13 @@
 from pathlib import Path
 from typing import Optional
 import importlib
+import os
 
 
 class VietnameseSTT:
     """Vietnamese Speech-to-Text using Whisper."""
     
-    def __init__(self, model_size: str = "tiny"):
+    def __init__(self, model_size: str | None = None):
         """
         Initialize STT with Whisper model.
         
@@ -14,6 +15,9 @@ class VietnameseSTT:
             model_size: Model size (tiny, base, small, medium, large)
                         tiny is fastest for Raspberry Pi
         """
+        model_size = model_size or os.environ.get("WHISPER_MODEL", "tiny")
+        if model_size not in {"tiny", "base"}:
+            raise ValueError("WHISPER_MODEL must be one of: tiny, base")
         try:
             whisper = importlib.import_module("whisper")
         except ImportError as exc:
@@ -21,6 +25,13 @@ class VietnameseSTT:
                 "Whisper not installed. Install with: pip install openai-whisper"
             ) from exc
         
+        try:
+            from importlib.metadata import version
+            assert hasattr(whisper, "load_model")
+            version("openai-whisper")
+        except Exception as exc:
+            raise RuntimeError("The installed Whisper package is not openai-whisper.") from exc
+
         print(f"Loading Whisper model: {model_size}")
         self.model = whisper.load_model(model_size)
         
@@ -34,12 +45,11 @@ class VietnameseSTT:
         Returns:
             Transcribed text in Vietnamese
         """
-        result = self.model.transcribe(
-            str(audio_path),
-            language="vi",
-            fp16=False,
-        )
-        return result["text"].strip()
+        try:
+            result = self.model.transcribe(str(audio_path), language="vi", task="transcribe", fp16=False)
+            return str(result.get("text", "")).strip()
+        except Exception:
+            return ""
     
     def transcribe_with_timestamps(self, audio_path: Path) -> dict:
         """

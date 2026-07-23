@@ -18,6 +18,13 @@ try:
         DEFAULT_RUNTIME_DIR,
         DEFAULT_STT_MODEL,
         DEFAULT_VOICE,
+        AUDIO_INPUT_DEVICE,
+        AUDIO_OUTPUT_DEVICE,
+        SILENCE_THRESHOLD,
+        SILENCE_DURATION,
+        MIN_SPEECH_DURATION,
+        MAX_RECORDING_DURATION,
+        PRE_ROLL_DURATION,
     )
 except ImportError:
     from src.config import (
@@ -27,6 +34,13 @@ except ImportError:
         DEFAULT_RUNTIME_DIR,
         DEFAULT_STT_MODEL,
         DEFAULT_VOICE,
+        AUDIO_INPUT_DEVICE,
+        AUDIO_OUTPUT_DEVICE,
+        SILENCE_THRESHOLD,
+        SILENCE_DURATION,
+        MIN_SPEECH_DURATION,
+        MAX_RECORDING_DURATION,
+        PRE_ROLL_DURATION,
     )
 
 logger = logging.getLogger("talking_sheep")
@@ -43,7 +57,13 @@ def run_once(recorder, stt, llm, tts, player, runtime_dir: Path, bleats_dir: Pat
     except ImportError:
         from src.voice_layer import create_spoken_response
 
-    input_wav = recorder.capture_utterance(output_path=runtime_dir / "input.wav")
+    input_wav = recorder.capture_utterance(
+        output_path=runtime_dir / "input.wav",
+        silence_threshold=SILENCE_THRESHOLD,
+        silence_duration=SILENCE_DURATION,
+    )
+    if input_wav is None:
+        return
     transcript = stt.transcribe(input_wav).strip()
     if not transcript:
         return
@@ -129,7 +149,12 @@ def main(argv=None) -> None:
         from src.audio_player import AudioPlayer
         from src.voice_layer import KokoroTTS
 
-    recorder = AudioRecorder(device_index=args.input_device)
+    recorder = AudioRecorder(
+        device_index=args.input_device if args.input_device is not None else AUDIO_INPUT_DEVICE,
+        pre_roll_duration=PRE_ROLL_DURATION,
+        min_speech_duration=MIN_SPEECH_DURATION,
+        max_recording_duration=MAX_RECORDING_DURATION,
+    )
 
     if args.list_mics:
         print("Detected Microphone Input Devices:")
@@ -159,7 +184,7 @@ def main(argv=None) -> None:
     logger.info("Kokoro TTS ready (voice=%s, device=%s).", args.voice, args.device)
 
     # Audio player
-    player = AudioPlayer()
+    player = AudioPlayer(device_index=AUDIO_OUTPUT_DEVICE)
     logger.info("AudioPlayer ready.")
 
     logger.info("All components initialized.  Starting conversation loop.")
@@ -172,11 +197,11 @@ def main(argv=None) -> None:
         run_conversation_loop(recorder, stt, llm, tts, player, runtime_dir, bleats_dir)
     finally:
         try:
-            recorder.__del__()
+            recorder.close()
         except Exception:
             pass
         try:
-            player.__del__()
+            player.close()
         except Exception:
             pass
 

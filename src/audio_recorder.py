@@ -1,8 +1,10 @@
 import logging
 import array
 import wave
+import time
+from collections import deque
 from pathlib import Path
-from typing import Optional, list, dict
+from typing import Optional
 
 import pyaudio
 
@@ -18,22 +20,28 @@ class AudioRecorder:
         channels: int = 1,
         chunk_size: int = 1024,
         device_index: Optional[int] = None,
+        pre_roll_duration: float = 0.25,
+        min_speech_duration: float = 0.3,
+        max_recording_duration: float = 15.0,
     ):
         self.sample_rate = sample_rate
         self.channels = channels
         self.chunk_size = chunk_size
         self.audio = pyaudio.PyAudio()
         self.device_index = device_index if device_index is not None else self._auto_detect_input_device()
+        self.pre_roll_duration = pre_roll_duration
+        self.min_speech_duration = min_speech_duration
+        self.max_recording_duration = max_recording_duration
 
     def list_input_devices(self) -> list[dict]:
         """List all available audio input devices (microphones)."""
         devices = []
         info = self.audio.get_host_api_info_by_index(0)
-        numdevices = info.get("deviceCount", 0)
+        numdevices = int(info.get("deviceCount", 0))
 
         for i in range(numdevices):
             device_info = self.audio.get_device_info_by_host_api_device_index(0, i)
-            if device_info.get("maxInputChannels", 0) > 0:
+            if float(device_info.get("maxInputChannels", 0)) > 0:
                 devices.append({
                     "index": i,
                     "name": device_info.get("name"),
@@ -78,7 +86,8 @@ class AudioRecorder:
         # Fallback to default if not interactive or user pressed Enter
         try:
             default_info = self.audio.get_default_input_device_info()
-            idx = default_info.get("index")
+            raw_idx = default_info.get("index")
+            idx = int(raw_idx) if raw_idx is not None else None
             logger.info("Using default audio input device [%d]: %s", idx, default_info.get("name"))
             return idx
         except Exception:
@@ -93,8 +102,8 @@ class AudioRecorder:
         silence_threshold: int = 500,
         silence_duration: float = 1.0,
         device_index: Optional[int] = None,
-    ) -> Path:
-        """Record a single utterance with VAD-based stopping."""
+    ) -> Optional[Path]:
+        """Record one utterance using four-state speech detection."""
         if output_path is None:
             output_path = Path("runtime/input.wav")
 
@@ -120,7 +129,11 @@ class AudioRecorder:
             raise RuntimeError(f"Microphone input stream failed to open (device index={target_device}). Check USB microphone / ALSA connection.") from exc
 
         frames = []
+        pre_roll = deque(maxlen=max(1, int(self.pre_roll_duration * self.sample_rate / self.chunk_size)))
+        state = "WAITING_FOR_SPEECH"
+        consecutive_speech = 0
         silence_frames = 0
+        started_at = time.monotonic()
         max_silence_frames = int(silence_duration * self.sample_rate / self.chunk_size)
 
         print("Recording... (speak now)")
@@ -133,22 +146,44 @@ class AudioRecorder:
                     logger.warning("Audio input overflow/read error: %s", exc)
                     continue
 
-                frames.append(data)
-
-                # Simple VAD: check RMS energy
-                audio_data = bytearray(data)
-                rms = self._calculate_rms(audio_data)
-
-                if rms < silence_threshold:
-                    silence_frames += 1
-                    if silence_frames > max_silence_frames:
-                        break
+                rms = self._calculate_rms(bytearray(data))
+                if state == "WAITING_FOR_SPEECH":
+                    pre_roll.append(data)
+                    consecutive_speech = consecutive_speech + 1 if rms >= silence_threshold else 0
+                    if consecutive_speech >= 3:
+                        state = "RECORDING"
+                        frames.extend(pre_roll)
+                        pre_roll.clear()
+                        started_at = time.monotonic()
                 else:
-                    silence_frames = 0
+                    frames.append(data)
+                    if rms < silence_threshold:
+                        silence_frames += 1
+                        if state == "RECORDING":
+                            state = "TRAILING_SILENCE"
+                        if state == "TRAILING_SILENCE" and silence_frames > max_silence_frames:
+                            state = "COMPLETE"
+                            break
+                    else:
+                        silence_frames = 0
+                        state = "RECORDING"
 
+                    if time.monotonic() - started_at >= self.max_recording_duration:
+                        state = "COMPLETE"
+                        break
+
+            if state == "WAITING_FOR_SPEECH":
+                logger.info("No speech detected.")
+                return None
+
+            if len(frames) * self.chunk_size / self.sample_rate < self.min_speech_duration:
+                logger.info("Speech was shorter than the minimum duration.")
+                return None
         finally:
-            stream.stop_stream()
-            stream.close()
+            try:
+                stream.stop_stream()
+            finally:
+                stream.close()
 
         # Save to WAV file
         with wave.open(str(output_path), 'wb') as wf:
@@ -166,9 +201,12 @@ class AudioRecorder:
         sum_squares = sum(s * s for s in samples)
         return (sum_squares / len(samples)) ** 0.5 if samples else 0
 
-    def __del__(self):
+    def close(self):
         if hasattr(self, 'audio'):
             try:
                 self.audio.terminate()
             except Exception:
                 pass
+
+    def __del__(self):
+        self.close()
