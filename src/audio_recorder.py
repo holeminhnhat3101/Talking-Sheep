@@ -1,212 +1,439 @@
+from __future__ import annotations
+
 import logging
-import array
-import wave
 import time
+import wave
 from collections import deque
 from pathlib import Path
 from typing import Optional
 
+import numpy as np
 import pyaudio
 
 logger = logging.getLogger(__name__)
 
 
+class MicrophoneUnavailableError(RuntimeError):
+    """Raised when no usable microphone stream can be opened."""
+
+
 class AudioRecorder:
-    """Record audio from microphone with VAD and Raspberry Pi ALSA/PortAudio device detection."""
+    """Capture any normal PortAudio microphone, then write 16 kHz mono for Whisper."""
 
     def __init__(
         self,
         sample_rate: int = 16000,
         channels: int = 1,
         chunk_size: int = 1024,
-        device_index: Optional[int] = None,
+        device_index: int | str | None = None,
         pre_roll_duration: float = 0.25,
         min_speech_duration: float = 0.3,
         max_recording_duration: float = 15.0,
-    ):
+    ) -> None:
+        if sample_rate <= 0 or channels != 1 or chunk_size <= 0:
+            raise ValueError("Whisper output must be mono with a positive rate and chunk size")
+
         self.sample_rate = sample_rate
         self.channels = channels
         self.chunk_size = chunk_size
-        self.audio = pyaudio.PyAudio()
-        self.device_index = device_index if device_index is not None else self._auto_detect_input_device()
+        self.device_selector = device_index
         self.pre_roll_duration = pre_roll_duration
         self.min_speech_duration = min_speech_duration
         self.max_recording_duration = max_recording_duration
 
-    def list_input_devices(self) -> list[dict]:
-        """List all available audio input devices (microphones)."""
-        devices = []
-        info = self.audio.get_host_api_info_by_index(0)
-        numdevices = int(info.get("deviceCount", 0))
+        self.audio = pyaudio.PyAudio()
+        self._closed = False
+        self._cached_config: dict | None = None
+        self.last_capture_info: dict = {}
 
-        for i in range(numdevices):
-            device_info = self.audio.get_device_info_by_host_api_device_index(0, i)
-            if float(device_info.get("maxInputChannels", 0)) > 0:
-                devices.append({
-                    "index": i,
-                    "name": device_info.get("name"),
-                    "channels": device_info.get("maxInputChannels"),
-                    "default_sample_rate": device_info.get("defaultSampleRate"),
-                })
+    def list_input_devices(self) -> list[dict]:
+        """Return every PortAudio input device across all host APIs."""
+        devices = []
+
+        for index in range(self.audio.get_device_count()):
+            try:
+                info = self.audio.get_device_info_by_index(index)
+            except Exception:
+                continue
+
+            channels = int(info.get("maxInputChannels", 0) or 0)
+            if channels < 1:
+                continue
+
+            host_api_index = int(info.get("hostApi", 0) or 0)
+            try:
+                host_api = self.audio.get_host_api_info_by_index(host_api_index).get(
+                    "name", str(host_api_index)
+                )
+            except Exception:
+                host_api = str(host_api_index)
+
+            devices.append(
+                {
+                    "index": index,
+                    "name": str(info.get("name", f"Input device {index}")),
+                    "channels": channels,
+                    "default_sample_rate": int(
+                        round(float(info.get("defaultSampleRate", self.sample_rate)))
+                    ),
+                    "host_api": str(host_api),
+                }
+            )
+
         return devices
 
-    def _auto_detect_input_device(self) -> Optional[int]:
-        """Attempt to resolve a valid default or fallback input device index for Raspberry Pi / ALSA."""
+    def _select_device(self) -> dict:
         devices = self.list_input_devices()
-
         if not devices:
-            logger.warning("No microphone input devices detected.")
-            return None
+            raise MicrophoneUnavailableError("No microphone input devices detected")
 
-        if len(devices) == 1:
-            logger.info("Only one microphone detected. Auto-selecting [%d]: %s", devices[0]["index"], devices[0]["name"])
-            return devices[0]["index"]
+        selector = self.device_selector
 
-        import sys
-        if sys.stdin and sys.stdin.isatty():
-            print("\nMultiple microphones detected. Please choose one:")
-            for i, mic in enumerate(devices):
-                print(f"  [{i + 1}] {mic['name']} (Index: {mic['index']}, Channels: {mic['channels']})")
-            
-            while True:
-                try:
-                    choice = input("Enter the number of your choice (or press Enter for default): ").strip()
-                    if not choice:
-                        break
-                    choice_idx = int(choice) - 1
-                    if 0 <= choice_idx < len(devices):
-                        selected = devices[choice_idx]
-                        logger.info("User selected microphone [%d]: %s", selected["index"], selected["name"])
-                        return selected["index"]
-                    else:
-                        print("Invalid choice. Please try again.")
-                except ValueError:
-                    print("Please enter a valid number.")
-                    
-        # Fallback to default if not interactive or user pressed Enter
+        if isinstance(selector, int):
+            for device in devices:
+                if device["index"] == selector:
+                    return device
+            raise MicrophoneUnavailableError(
+                f"Microphone index {selector} is unavailable"
+            )
+
+        if isinstance(selector, str) and selector.strip():
+            wanted = selector.casefold().strip()
+            exact = [d for d in devices if d["name"].casefold() == wanted]
+            partial = [d for d in devices if wanted in d["name"].casefold()]
+            if exact or partial:
+                return (exact or partial)[0]
+            raise MicrophoneUnavailableError(
+                f"Microphone {selector!r} is unavailable"
+            )
+
         try:
-            default_info = self.audio.get_default_input_device_info()
-            raw_idx = default_info.get("index")
-            idx = int(raw_idx) if raw_idx is not None else None
-            logger.info("Using default audio input device [%d]: %s", idx, default_info.get("name"))
-            return idx
+            default_index = int(self.audio.get_default_input_device_info()["index"])
+            for device in devices:
+                if device["index"] == default_index:
+                    return device
         except Exception:
-            logger.warning("No default input device found by PortAudio. Searching available devices...")
-            first_mic = devices[0]
-            logger.info("Auto-selected fallback input device [%d]: %s", first_mic["index"], first_mic["name"])
-            return first_mic["index"]
+            pass
+
+        return next(
+            (d for d in devices if "usb" in d["name"].casefold()),
+            devices[0],
+        )
+
+    def _candidate_configs(self, device: dict) -> list[dict]:
+        max_channels = device["channels"]
+        default_rate = device["default_sample_rate"]
+
+        rates = self._unique(
+            [default_rate, 48000, 44100, 32000, self.sample_rate, 16000]
+        )
+        channel_counts = self._unique([max_channels, 1, min(2, max_channels)])
+        formats = [pyaudio.paInt16, pyaudio.paFloat32]
+
+        configs = [
+            {
+                "device_index": device["index"],
+                "rate": rate,
+                "channels": channels,
+                "format": audio_format,
+            }
+            for rate in rates
+            for channels in channel_counts
+            for audio_format in formats
+            if channels <= max_channels
+        ]
+
+        if (
+            self._cached_config
+            and self._cached_config["device_index"] == device["index"]
+        ):
+            configs = [self._cached_config] + [
+                config for config in configs if config != self._cached_config
+            ]
+
+        return configs
+
+    @staticmethod
+    def _unique(values: list[int]) -> list[int]:
+        return list(dict.fromkeys(value for value in values if value > 0))
+
+    def _open_stream(self, device: dict) -> tuple[pyaudio.Stream, dict]:
+        failures = []
+
+        for config in self._candidate_configs(device):
+            try:
+                stream = self.audio.open(
+                    format=config["format"],
+                    channels=config["channels"],
+                    rate=config["rate"],
+                    input=True,
+                    input_device_index=config["device_index"],
+                    frames_per_buffer=self.chunk_size,
+                )
+            except Exception as exc:
+                failures.append(
+                    f"{config['rate']} Hz/{config['channels']} ch: {exc}"
+                )
+                continue
+
+            self._cached_config = config
+            logger.info(
+                "Using microphone [%d] %s at %d Hz, %d channel(s)",
+                device["index"],
+                device["name"],
+                config["rate"],
+                config["channels"],
+            )
+            return stream, config
+
+        self._cached_config = None
+        raise MicrophoneUnavailableError(
+            f"Could not open [{device['index']}] {device['name']}. "
+            f"Last attempts: {'; '.join(failures[-4:])}"
+        )
 
     def capture_utterance(
         self,
         output_path: Optional[Path] = None,
-        silence_threshold: int = 500,
+        silence_threshold: Optional[float] = 500,
         silence_duration: float = 1.0,
-        device_index: Optional[int] = None,
+        device_index: int | str | None = None,
     ) -> Optional[Path]:
-        """Record one utterance using four-state speech detection."""
-        if output_path is None:
-            output_path = Path("runtime/input.wav")
+        """Capture natively, then convert to Whisper's 16 kHz mono WAV."""
+        if self._closed:
+            raise RuntimeError("AudioRecorder is closed")
+        if silence_duration <= 0:
+            raise ValueError("silence_duration must be positive")
 
+        output_path = Path(output_path or "runtime/input.wav")
         output_path.parent.mkdir(parents=True, exist_ok=True)
 
-        target_device = device_index if device_index is not None else self.device_index
+        old_selector = self.device_selector
+        if device_index is not None:
+            self.device_selector = device_index
 
-        open_kwargs = {
-            "format": pyaudio.paInt16,
-            "channels": self.channels,
-            "rate": self.sample_rate,
-            "input": True,
-            "frames_per_buffer": self.chunk_size,
-        }
-
-        if target_device is not None:
-            open_kwargs["input_device_index"] = target_device
-
+        stream = None
         try:
-            stream = self.audio.open(**open_kwargs)
-        except Exception as exc:
-            logger.error("Failed to open audio input stream on device %s. Available devices: %s", target_device, self.list_input_devices())
-            raise RuntimeError(f"Microphone input stream failed to open (device index={target_device}). Check USB microphone / ALSA connection.") from exc
+            device = self._select_device()
+            stream, config = self._open_stream(device)
 
-        frames = []
-        pre_roll = deque(maxlen=max(1, int(self.pre_roll_duration * self.sample_rate / self.chunk_size)))
-        state = "WAITING_FOR_SPEECH"
-        consecutive_speech = 0
-        silence_frames = 0
-        started_at = time.monotonic()
-        max_silence_frames = int(silence_duration * self.sample_rate / self.chunk_size)
+            rate = config["rate"]
+            channels = config["channels"]
+            audio_format = config["format"]
+            chunk_seconds = self.chunk_size / rate
 
-        print("Recording... (speak now)")
+            pre_roll = deque(
+                maxlen=max(1, round(self.pre_roll_duration / chunk_seconds))
+            )
+            silence_chunks_needed = max(
+                1, round(silence_duration / chunk_seconds)
+            )
 
-        try:
+            threshold = (
+                float(silence_threshold)
+                if silence_threshold is not None
+                else self._calibrate_threshold(stream, config)
+            )
+
+            frames: list[bytes] = []
+            speech_chunks = 0
+            consecutive_speech = 0
+            trailing_silence = 0
+            recording_started = None
+            read_errors = 0
+
+            print("Recording... (speak now)")
+
             while True:
                 try:
-                    data = stream.read(self.chunk_size, exception_on_overflow=False)
-                except IOError as exc:
-                    logger.warning("Audio input overflow/read error: %s", exc)
+                    data = stream.read(
+                        self.chunk_size,
+                        exception_on_overflow=False,
+                    )
+                    read_errors = 0
+                except (IOError, OSError) as exc:
+                    read_errors += 1
+                    if read_errors >= 3:
+                        raise MicrophoneUnavailableError(
+                            f"Microphone read failed repeatedly: {exc}"
+                        ) from exc
                     continue
 
-                rms = self._calculate_rms(bytearray(data))
-                if state == "WAITING_FOR_SPEECH":
-                    pre_roll.append(data)
-                    consecutive_speech = consecutive_speech + 1 if rms >= silence_threshold else 0
-                    if consecutive_speech >= 3:
-                        state = "RECORDING"
-                        frames.extend(pre_roll)
-                        pre_roll.clear()
-                        started_at = time.monotonic()
-                else:
-                    frames.append(data)
-                    if rms < silence_threshold:
-                        silence_frames += 1
-                        if state == "RECORDING":
-                            state = "TRAILING_SILENCE"
-                        if state == "TRAILING_SILENCE" and silence_frames > max_silence_frames:
-                            state = "COMPLETE"
-                            break
-                    else:
-                        silence_frames = 0
-                        state = "RECORDING"
+                rms = self._rms(data, audio_format, channels)
 
-                    if time.monotonic() - started_at >= self.max_recording_duration:
-                        state = "COMPLETE"
+                if recording_started is None:
+                    pre_roll.append(data)
+                    consecutive_speech = (
+                        consecutive_speech + 1 if rms >= threshold else 0
+                    )
+                    if consecutive_speech < 3:
+                        continue
+
+                    frames.extend(pre_roll)
+                    pre_roll.clear()
+                    speech_chunks = consecutive_speech
+                    recording_started = time.monotonic()
+                    continue
+
+                frames.append(data)
+
+                if rms >= threshold:
+                    speech_chunks += 1
+                    trailing_silence = 0
+                else:
+                    trailing_silence += 1
+                    if trailing_silence >= silence_chunks_needed:
                         break
 
-            if state == "WAITING_FOR_SPEECH":
-                logger.info("No speech detected.")
+                if time.monotonic() - recording_started >= self.max_recording_duration:
+                    break
+
+            speech_duration = speech_chunks * chunk_seconds
+            if speech_duration < self.min_speech_duration:
+                logger.info("Speech was too short: %.2f seconds", speech_duration)
                 return None
 
-            if len(frames) * self.chunk_size / self.sample_rate < self.min_speech_duration:
-                logger.info("Speech was shorter than the minimum duration.")
-                return None
+            native = self._decode(b"".join(frames), audio_format, channels)
+            mono = self._best_channel(native)
+            mono = self._resample(mono, rate, self.sample_rate)
+            pcm = self._to_int16(mono)
+
+            with wave.open(str(output_path), "wb") as wav_file:
+                wav_file.setnchannels(1)
+                wav_file.setsampwidth(2)
+                wav_file.setframerate(self.sample_rate)
+                wav_file.writeframes(pcm.tobytes())
+
+            self.last_capture_info = {
+                "device_index": device["index"],
+                "device_name": device["name"],
+                "capture_rate": rate,
+                "capture_channels": channels,
+                "target_rate": self.sample_rate,
+                "speech_duration": speech_duration,
+            }
+
+            logger.info(
+                "Saved %s from %d Hz/%d ch as 16 kHz mono",
+                output_path,
+                rate,
+                channels,
+            )
+            return output_path
+
         finally:
+            if stream is not None:
+                try:
+                    stream.stop_stream()
+                except Exception:
+                    pass
+                try:
+                    stream.close()
+                except Exception:
+                    pass
+            self.device_selector = old_selector
+
+    def _calibrate_threshold(self, stream: pyaudio.Stream, config: dict) -> float:
+        """Use half a second of ambient audio when no fixed threshold is given."""
+        values = []
+
+        for _ in range(max(1, round(0.5 * config["rate"] / self.chunk_size))):
             try:
-                stream.stop_stream()
-            finally:
-                stream.close()
+                data = stream.read(self.chunk_size, exception_on_overflow=False)
+            except (IOError, OSError):
+                continue
+            values.append(self._rms(data, config["format"], config["channels"]))
 
-        # Save to WAV file
-        with wave.open(str(output_path), 'wb') as wf:
-            wf.setnchannels(self.channels)
-            wf.setsampwidth(self.audio.get_sample_size(pyaudio.paInt16))
-            wf.setframerate(self.sample_rate)
-            wf.writeframes(b''.join(frames))
+        ambient = float(np.median(values)) if values else 0.0
+        threshold = max(150.0, ambient * 3.0)
+        logger.info(
+            "Ambient RMS %.1f; speech threshold %.1f",
+            ambient,
+            threshold,
+        )
+        return threshold
 
-        logger.info("Saved recording to %s (%d bytes)", output_path, len(b''.join(frames)))
-        return output_path
+    @staticmethod
+    def _decode(data: bytes, audio_format: int, channels: int) -> np.ndarray:
+        if audio_format == pyaudio.paInt16:
+            samples = np.frombuffer(data, dtype="<i2").astype(np.float32) / 32768.0
+        elif audio_format == pyaudio.paFloat32:
+            samples = np.frombuffer(data, dtype="<f4").astype(np.float32)
+        else:
+            raise ValueError(f"Unsupported audio format: {audio_format}")
 
-    def _calculate_rms(self, data: bytearray) -> float:
-        """Calculate RMS energy of audio data."""
-        samples = array.array('h', data)
-        sum_squares = sum(s * s for s in samples)
-        return (sum_squares / len(samples)) ** 0.5 if samples else 0
+        usable = samples.size - samples.size % channels
+        return samples[:usable].reshape(-1, channels)
 
-    def close(self):
-        if hasattr(self, 'audio'):
-            try:
-                self.audio.terminate()
-            except Exception:
-                pass
+    @classmethod
+    def _rms(cls, data: bytes, audio_format: int, channels: int) -> float:
+        samples = cls._decode(data, audio_format, channels)
+        if samples.size == 0:
+            return 0.0
 
-    def __del__(self):
+        channel_rms = np.sqrt(
+            np.mean(np.square(samples, dtype=np.float64), axis=0)
+        )
+        return float(np.max(channel_rms) * 32768.0)
+
+    @staticmethod
+    def _best_channel(samples: np.ndarray) -> np.ndarray:
+        """Keep native channels until selecting one channel for Whisper."""
+        if samples.shape[1] == 1:
+            return samples[:, 0]
+
+        channel_rms = np.sqrt(
+            np.mean(np.square(samples, dtype=np.float64), axis=0)
+        )
+        return samples[:, int(np.argmax(channel_rms))]
+
+    @staticmethod
+    def _resample(
+        samples: np.ndarray,
+        source_rate: int,
+        target_rate: int,
+    ) -> np.ndarray:
+        if source_rate == target_rate or samples.size == 0:
+            return samples.astype(np.float32, copy=False)
+
+        # ponytail: linear resampling is enough for STT; use resample_poly only
+        # if transcription testing shows a measurable quality problem.
+        target_length = max(1, round(samples.size * target_rate / source_rate))
+        return np.interp(
+            np.linspace(0, samples.size - 1, target_length),
+            np.arange(samples.size),
+            samples,
+        ).astype(np.float32)
+
+    @staticmethod
+    def _to_int16(samples: np.ndarray) -> np.ndarray:
+        return np.round(np.clip(samples, -1.0, 1.0) * 32767).astype("<i2")
+
+    def close(self) -> None:
+        if self._closed:
+            return
+        self._closed = True
+        self.audio.terminate()
+
+    def __enter__(self) -> "AudioRecorder":
+        return self
+
+    def __exit__(self, *_args) -> None:
         self.close()
+
+    def __del__(self) -> None:
+        try:
+            self.close()
+        except Exception:
+            pass
+
+
+def _self_check() -> None:
+    source = np.array([0.0, 1.0], dtype=np.float32)
+    assert AudioRecorder._resample(source, 2, 4).shape == (4,)
+    assert AudioRecorder._to_int16(source).dtype == np.dtype("<i2")
+
+
+if __name__ == "__main__":
+    _self_check()
+    print("audio_recorder self-check passed")

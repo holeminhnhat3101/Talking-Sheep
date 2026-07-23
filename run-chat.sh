@@ -81,4 +81,4 @@ from src.chat_phogpt import ensure_model
 ensure_model()
 PY
 log READY "Dependencies and PhoGPT model are ready."
-exec "$PYTHON" "$ROOT_DIR/src/talking_sheep_voice.py" "$@"
+exec "$PYTHON" -m src.talking_sheep_voice "$@"
