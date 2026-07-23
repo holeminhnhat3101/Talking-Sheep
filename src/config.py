@@ -1,4 +1,4 @@
-"""Central application configuration for Talking Sheep."""
+"""Cấu hình ứng dụng trung tâm cho Talking Sheep."""
 
 import os
 
@@ -35,7 +35,7 @@ def _device(name: str) -> int | None:
         ) from exc
 
 
-# Local LLM
+# LLM Local
 LLM_MODEL_REPO = "ggml-org/Qwen3-1.7B-GGUF"
 LLM_MODEL_FILENAME = "Qwen3-1.7B-Q4_K_M.gguf"
 
@@ -58,7 +58,7 @@ LLM_N_BATCH_MAX = 256
 LLM_CONTEXT = 2048
 
 
-# Speech-to-text
+# Chuyển giọng nói thành văn bản
 STT_DEFAULT_MODEL = "tiny"
 STT_ALLOWED_MODELS = ("tiny", "base")
 
@@ -68,7 +68,7 @@ STT_MODEL_IDS = {
 }
 
 
-# Audio format
+# Định dạng audio
 KOKORO_SAMPLE_RATE = 24000
 TARGET_SAMPLE_RATE = 24000
 TARGET_CHANNELS = 1
@@ -82,13 +82,13 @@ DEFAULT_INPUT_WAV = "input.wav"
 DEFAULT_FINAL_WAV = "final.wav"
 
 
-# Kokoro voice
+# Giọng Kokoro
 SPEAKING_SPEED = 1.0
 DEFAULT_VOICE = "mai_linh"
 DEFAULT_DEVICE = "cpu"
 
 
-# Sheep effects
+# Hiệu ứng cừu
 SILENCE_MS = 100
 BLEAT_FADE_IN_MS = 25
 BLEAT_FADE_OUT_MS = 70
@@ -99,7 +99,7 @@ PAUSE_AFTER_BLEAT_MS = SILENCE_MS
 BLEAT_PROBABILITY = _float("BLEAT_PROBABILITY", 1.0, 0, 1)
 
 
-# Paths and logging
+# Đường dẫn và logging
 DEFAULT_BLEATS_DIR = "assets/bleats"
 DEFAULT_RUNTIME_DIR = "runtime"
 DEFAULT_LOG_LEVEL = "INFO"
@@ -141,7 +141,7 @@ AUDIO_MAX_WAIT_FOR_SPEECH = None
 AUDIO_SAVE_NATIVE_DEBUG = False
 
 
-# Retry delays
+# Độ trễ thử lại
 MIC_RETRY_INITIAL_DELAY = _float(
     "MIC_RETRY_INITIAL_DELAY",
     2.0,

@@ -1,4 +1,4 @@
-"""Voice layer: sentence splitting, TTS synthesis, bleat insertion, audio composition."""
+"""Lớp giọng nói: chia câu, tổng hợp TTS, chèn tiếng cừu, soạn audio."""
 
 import logging
 import re
@@ -50,19 +50,19 @@ except ImportError:
 logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
-# Constants
+# Hằng số
 # ---------------------------------------------------------------------------
 
 # ---------------------------------------------------------------------------
-# Sentence splitting
+# Chia câu
 # ---------------------------------------------------------------------------
 
 def split_sentences(text: str) -> list[str]:
-    """Split text into sentences at . ! ? boundaries.
+    """Tách văn bản thành câu tại ranh giới . ! ?
 
-    Preserves punctuation. Does not split on commas.
-    Decimal numbers like 3.5 inside sentences (without following whitespace)
-    are preserved as single segments.
+    Giữ nguyên dấu câu. Không tách tại dấu phẩy.
+    Số thập phân như 3.5 bên trong câu (không có khoảng trắng theo sau)
+    được giữ nguyên như một đoạn.
     """
     text = " ".join(text.split())  # collapse whitespace
     if not text:
@@ -74,11 +74,11 @@ def split_sentences(text: str) -> list[str]:
 
 
 # ---------------------------------------------------------------------------
-# Bleat discovery and selection
+# Khám phá và chọn tiếng cừu
 # ---------------------------------------------------------------------------
 
 def discover_bleats(bleats_dir: Path) -> list[Path]:
-    """Scan *bleats_dir* for .wav files.  Return empty list if missing."""
+    """Quét *bleats_dir* tìm file .wav. Trả về danh sách rỗng nếu thiếu."""
     if not bleats_dir.is_dir():
         logger.debug("Bleats directory not found: %s", bleats_dir)
         return []
@@ -97,7 +97,7 @@ def choose_bleat(bleats: list[Path]) -> Optional[Path]:
 
 
 # ---------------------------------------------------------------------------
-# Audio helpers
+# Helper audio
 # ---------------------------------------------------------------------------
 
 def normalize_segment(
@@ -106,7 +106,7 @@ def normalize_segment(
     target_channels: int = TARGET_CHANNELS,
     target_sample_width: int = TARGET_SAMPLE_WIDTH,
 ) -> AudioSegment:
-    """Convert an AudioSegment to a common sample rate, channel count, width."""
+    """Chuyển đổi AudioSegment sang sample rate, số kênh, độ rộng chung."""
     if segment.frame_rate != target_rate:
         segment = segment.set_frame_rate(target_rate)
     if segment.channels != target_channels:
@@ -117,7 +117,7 @@ def normalize_segment(
 
 
 def numpy_to_segment(audio: np.ndarray, sample_rate: int) -> AudioSegment:
-    """Convert a float32 numpy array to a pydub AudioSegment (16-bit mono)."""
+    """Chuyển đổi mảng numpy float32 sang AudioSegment pydub (16-bit mono)."""
     # Clip and scale float32 [-1, 1] to int16
     audio = np.asarray(audio, dtype=np.float32).reshape(-1)
     audio = np.clip(audio, -1.0, 1.0)
@@ -133,18 +133,18 @@ def numpy_to_segment(audio: np.ndarray, sample_rate: int) -> AudioSegment:
 
 
 # ---------------------------------------------------------------------------
-# TTS synthesis
+# Tổng hợp TTS
 # ---------------------------------------------------------------------------
 
 class KokoroTTS:
-    """Small application adapter around one loaded ``KokoroVietnamese`` model."""
+    """Adapter ứng dụng nhỏ quanh một model ``KokoroVietnamese`` đã tải."""
 
     def __init__(self, engine, speed: float = SPEAKING_SPEED):
         self.engine = engine
         self.speed = speed
 
     def synthesize(self, text: str, output_path: str | Path | None = None):
-        """Synthesize text; optionally write a mono 24 kHz WAV file."""
+        """Tổng hợp văn bản; tùy chọn ghi file WAV mono 24 kHz."""
         audio_array, phonemes = self.engine.synthesize(text, speed=self.speed)
         if output_path is not None:
             audio = np.clip(audio_array, -1.0, 1.0)
@@ -160,10 +160,10 @@ class KokoroTTS:
         return audio_array, phonemes
 
 def synthesize_sentences(tts, sentences: list[str]) -> list[AudioSegment]:
-    """Call Kokoro TTS for each sentence.  Returns list of AudioSegments.
+    """Gọi Kokoro TTS cho từng câu. Trả về danh sách AudioSegments.
 
-    ``tts`` must have a ``synthesize(text) -> (np.ndarray, str)`` method
-    (the KokoroVietnamese API).
+    ``tts`` phải có method ``synthesize(text) -> (np.ndarray, str)``
+    (API KokoroVietnamese).
     """
     segments: list[AudioSegment] = []
 
@@ -187,7 +187,7 @@ def synthesize_sentences(tts, sentences: list[str]) -> list[AudioSegment]:
 
 
 # ---------------------------------------------------------------------------
-# Composition
+# Soạn nhạc
 # ---------------------------------------------------------------------------
 
 def compose_with_bleat(
@@ -195,11 +195,11 @@ def compose_with_bleat(
     bleat_path: Optional[Path],
     bleat_after_index: int = 0,
 ) -> AudioSegment:
-    """Combine sentence AudioSegments with optional single bleat.
+    """Kết hợp AudioSegments câu với tiếng cừu đơn tùy chọn.
 
-    At most one bleat is inserted.  The bleat goes after
-    ``sentence_segments[bleat_after_index]`` (default: after the first sentence).
-    If there are fewer than 2 sentences, no bleat is inserted.
+    Tối đa một tiếng cừu được chèn. Tiếng cừu đi sau
+    ``sentence_segments[bleat_after_index]`` (mặc định: sau câu đầu tiên).
+    Nếu có ít hơn 2 câu, không có tiếng cừu được chèn.
     """
     if not sentence_segments:
         return AudioSegment.empty()
@@ -248,7 +248,7 @@ def compose_with_bleat(
 
 
 # ---------------------------------------------------------------------------
-# Top-level orchestration
+# Điều phối cấp cao nhất
 # ---------------------------------------------------------------------------
 
 def create_spoken_response(
@@ -257,16 +257,16 @@ def create_spoken_response(
     bleats_dir: Path = Path(DEFAULT_BLEATS_DIR),
     runtime_dir: Path = Path(DEFAULT_RUNTIME_DIR),
 ) -> Path:
-    """Create a spoken WAV response with optional sheep bleat.
+    """Tạo phản ứng WAV có thể nói với tiếng cừu tùy chọn.
 
-    Steps:
-      1. Split response into sentences.
-      2. Synthesize each sentence via Kokoro TTS.
-      3. Discover available bleats, choose one.
-      4. Compose final audio with optional bleat after the first sentence.
-      5. Export to runtime_dir/{DEFAULT_FINAL_WAV} and return its path.
+    Các bước:
+      1. Tách phản ứng thành câu.
+      2. Tổng hợp từng câu qua Kokoro TTS.
+      3. Khám phá tiếng cừu có sẵn, chọn một.
+      4. Soạn audio cuối cùng với tiếng cừu tùy chọn sau câu đầu tiên.
+      5. Xuất sang runtime_dir/{DEFAULT_FINAL_WAV} và trả về đường dẫn của nó.
 
-    Raises ValueError if *response_text* produces no usable sentences.
+    Raises ValueError nếu *response_text* không tạo ra câu nào có thể sử dụng.
     """
     runtime_dir.mkdir(parents=True, exist_ok=True)
 

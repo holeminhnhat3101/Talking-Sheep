@@ -21,7 +21,7 @@ except ImportError:
 
 
 class AudioPlayer:
-    """Play WAV files synchronously."""
+    """Phát file WAV đồng bộ."""
 
     def __init__(self, device_index: int | None = None):
         self.audio = pyaudio.PyAudio()

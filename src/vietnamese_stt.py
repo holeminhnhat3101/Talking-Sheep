@@ -16,7 +16,7 @@ except ImportError:
 
 
 class VietnameseSTT:
-    """Vietnamese speech-to-text using PhoWhisper."""
+    """Chuyển giọng nói tiếng Việt thành văn bản bằng PhoWhisper."""
 
     def __init__(self, model_size: str | None = None):
         model_size = model_size or os.getenv(
