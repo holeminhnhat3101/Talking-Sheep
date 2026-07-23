@@ -158,10 +158,10 @@ class LLMChat:
             repeat_penalty=LLM_REPEAT_PENALTY,
         )
 
-       reply = output["choices"][0]["message"]["content"]
+        reply = output["choices"][0]["message"]["content"]
 
-reply = re.sub(r"<think>.*?</think>\s*", "", reply, flags=re.DOTALL)
-reply = re.sub(r"```.*?```", "", reply, flags=re.DOTALL).strip()
+        reply = re.sub(r"<think>.*?</think>\s*", "", reply, flags=re.DOTALL)
+        reply = re.sub(r"```.*?```", "", reply, flags=re.DOTALL).strip()
 
         if reply:
             self.history.append((user_prompt, reply))
