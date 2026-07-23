@@ -4,6 +4,7 @@ from collections import deque
 from pathlib import Path
 import importlib
 import os
+import re
 import shutil
 import threading
 
@@ -160,6 +161,8 @@ class LLMChat:
         reply = str(
             output["choices"][0]["message"]["content"] or ""
         ).strip()
+
+        reply = re.sub(r"```.*?```", "", reply, flags=re.DOTALL).strip()
 
         if reply:
             self.history.append((user_prompt, reply))
