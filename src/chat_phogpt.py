@@ -8,9 +8,33 @@ import shutil
 from collections import deque
 
 try:
-    from .config import MODEL_FILENAME, PHOGPT_MODEL_REPO, PROMPT_TEMPLATE, SYSTEM_PROMPT
+    from .config import (
+        MODEL_FILENAME,
+        PHOGPT_CONTEXT,
+        PHOGPT_HISTORY_MAXLEN,
+        PHOGPT_MAX_TOKENS,
+        PHOGPT_MODEL_REPO,
+        PHOGPT_N_BATCH_MAX,
+        PHOGPT_REPEAT_PENALTY,
+        PHOGPT_TEMPERATURE,
+        PHOGPT_TOP_P,
+        PROMPT_TEMPLATE,
+        SYSTEM_PROMPT,
+    )
 except ImportError:
-    from src.config import MODEL_FILENAME, PHOGPT_MODEL_REPO, PROMPT_TEMPLATE, SYSTEM_PROMPT
+    from src.config import (
+        MODEL_FILENAME,
+        PHOGPT_CONTEXT,
+        PHOGPT_HISTORY_MAXLEN,
+        PHOGPT_MAX_TOKENS,
+        PHOGPT_MODEL_REPO,
+        PHOGPT_N_BATCH_MAX,
+        PHOGPT_REPEAT_PENALTY,
+        PHOGPT_TEMPERATURE,
+        PHOGPT_TOP_P,
+        PROMPT_TEMPLATE,
+        SYSTEM_PROMPT,
+    )
 
 _thinking_event = threading.Event()
 
@@ -77,7 +101,7 @@ def ensure_model(model_root: Path | None = None) -> Path:
 
 def build_prompt(history, user_prompt: str) -> str:
     parts = [SYSTEM_PROMPT.strip()]
-    for previous_user, previous_assistant in list(history)[-4:]:
+    for previous_user, previous_assistant in list(history)[-PHOGPT_HISTORY_MAXLEN:]:
         parts.append(
             f"### Câu hỏi: {previous_user.strip()}\n### Trả lời: {previous_assistant.strip()}"
         )
@@ -91,25 +115,25 @@ class PhoGPTChat:
     def __init__(self, model_root: Path | None = None):
         llama_class = load_runtime_dependencies()
         self.model_path = ensure_model(model_root)
-        n_ctx = int(os.environ.get("PHOGPT_CONTEXT", "2048"))
+        n_ctx = int(os.environ.get("PHOGPT_CONTEXT", str(PHOGPT_CONTEXT)))
         n_threads = int(os.environ.get("PHOGPT_THREADS", str(os.cpu_count() or 4)))
         self.llm = llama_class(
             model_path=str(self.model_path),
             n_ctx=n_ctx,
             n_threads=n_threads,
-            n_batch=min(512, n_ctx),
+            n_batch=min(PHOGPT_N_BATCH_MAX, n_ctx),
             verbose=False,
         )
-        self.history: deque[tuple[str, str]] = deque(maxlen=4)
+        self.history: deque[tuple[str, str]] = deque(maxlen=PHOGPT_HISTORY_MAXLEN)
 
     def _generate_response_internal(self, user_prompt: str) -> str:
         prompt_text = build_prompt(self.history, user_prompt)
         output = self.llm(
             prompt_text,
-            max_tokens=256,
-            temperature=0.7,
-            top_p=0.9,
-            repeat_penalty=1.05,
+            max_tokens=PHOGPT_MAX_TOKENS,
+            temperature=PHOGPT_TEMPERATURE,
+            top_p=PHOGPT_TOP_P,
+            repeat_penalty=PHOGPT_REPEAT_PENALTY,
             stop=["### Câu hỏi:"],
         )
         reply = output["choices"][0]["text"].strip()

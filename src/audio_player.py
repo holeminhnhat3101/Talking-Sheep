@@ -1,7 +1,23 @@
 import pyaudio
 import wave
 from pathlib import Path
-import os
+
+try:
+    from .config import (
+        AUDIO_CHUNK_SIZE,
+        AUDIO_OUTPUT_DEVICE,
+        TARGET_CHANNELS,
+        TARGET_SAMPLE_RATE,
+        TARGET_SAMPLE_WIDTH,
+    )
+except ImportError:
+    from src.config import (
+        AUDIO_CHUNK_SIZE,
+        AUDIO_OUTPUT_DEVICE,
+        TARGET_CHANNELS,
+        TARGET_SAMPLE_RATE,
+        TARGET_SAMPLE_WIDTH,
+    )
 
 
 class AudioPlayer:
@@ -9,8 +25,9 @@ class AudioPlayer:
     
     def __init__(self, device_index: int | None = None):
         self.audio = pyaudio.PyAudio()
-        configured = os.environ.get("AUDIO_OUTPUT_DEVICE")
-        self.device_index = device_index if device_index is not None else (int(configured) if configured else None)
+        self.device_index = (
+            device_index if device_index is not None else AUDIO_OUTPUT_DEVICE
+        )
         
     def play_blocking(self, audio_path: str) -> None:
         """
@@ -20,8 +37,15 @@ class AudioPlayer:
             audio_path: Path to WAV file
         """
         with wave.open(audio_path, 'rb') as wf:
-            if wf.getnchannels() != 1 or wf.getsampwidth() != 2 or wf.getframerate() != 24000:
-                raise ValueError("runtime/final.wav must be mono, 16-bit, and 24 kHz")
+            if (
+                wf.getnchannels() != TARGET_CHANNELS
+                or wf.getsampwidth() != TARGET_SAMPLE_WIDTH
+                or wf.getframerate() != TARGET_SAMPLE_RATE
+            ):
+                raise ValueError(
+                    f"runtime/final.wav must be mono, 16-bit, and "
+                    f"{TARGET_SAMPLE_RATE // 1000} kHz"
+                )
             kwargs = {
                 "format": self.audio.get_format_from_width(wf.getsampwidth()),
                 "channels": wf.getnchannels(),
@@ -32,10 +56,10 @@ class AudioPlayer:
                 kwargs["output_device_index"] = self.device_index
             stream = self.audio.open(**kwargs)
             try:
-                data = wf.readframes(1024)
+                data = wf.readframes(AUDIO_CHUNK_SIZE)
                 while data:
                     stream.write(data)
-                    data = wf.readframes(1024)
+                    data = wf.readframes(AUDIO_CHUNK_SIZE)
             finally:
                 stream.stop_stream()
                 stream.close()

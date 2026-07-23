@@ -18,6 +18,9 @@ try:
         BLEAT_FADE_OUT_MS,
         BLEAT_VOLUME_DB,
         BLEAT_PROBABILITY,
+        DEFAULT_BLEATS_DIR,
+        DEFAULT_FINAL_WAV,
+        DEFAULT_RUNTIME_DIR,
         KOKORO_SAMPLE_RATE,
         PAUSE_AFTER_BLEAT_MS,
         PAUSE_BEFORE_BLEAT_MS,
@@ -33,6 +36,9 @@ except ImportError:
         BLEAT_FADE_OUT_MS,
         BLEAT_VOLUME_DB,
         BLEAT_PROBABILITY,
+        DEFAULT_BLEATS_DIR,
+        DEFAULT_FINAL_WAV,
+        DEFAULT_RUNTIME_DIR,
         KOKORO_SAMPLE_RATE,
         PAUSE_AFTER_BLEAT_MS,
         PAUSE_BEFORE_BLEAT_MS,
@@ -245,8 +251,8 @@ def compose_with_bleat(
 def create_spoken_response(
     response_text: str,
     tts,
-    bleats_dir: Path = Path("assets/bleats"),
-    runtime_dir: Path = Path("runtime"),
+    bleats_dir: Path = Path(DEFAULT_BLEATS_DIR),
+    runtime_dir: Path = Path(DEFAULT_RUNTIME_DIR),
 ) -> Path:
     """Create a spoken WAV response with optional sheep bleat.
 
@@ -255,7 +261,7 @@ def create_spoken_response(
       2. Synthesize each sentence via Kokoro TTS.
       3. Discover available bleats, choose one.
       4. Compose final audio with optional bleat after the first sentence.
-      5. Export to runtime_dir/final.wav and return its path.
+      5. Export to runtime_dir/{DEFAULT_FINAL_WAV} and return its path.
 
     Raises ValueError if *response_text* produces no usable sentences.
     """
@@ -284,7 +290,7 @@ def create_spoken_response(
     )
 
     # Export
-    final_path = runtime_dir / "final.wav"
+    final_path = runtime_dir / DEFAULT_FINAL_WAV
     final_audio.export(str(final_path), format="wav")
     logger.info("Exported final audio to %s (%d ms).", final_path, len(final_audio))
 

@@ -31,63 +31,70 @@ if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
 try:
-    from . import config as app_config
+    from .config import (
+        AUDIO_AUTO_CALIBRATE,
+        AUDIO_CALIBRATION_DURATION,
+        AUDIO_CAPTURE_CHANNELS,
+        AUDIO_CAPTURE_RATE,
+        AUDIO_CHANNEL_MODE,
+        AUDIO_INPUT_DEVICE,
+        AUDIO_MAX_WAIT_FOR_SPEECH,
+        AUDIO_MINIMUM_AUTO_THRESHOLD,
+        AUDIO_OUTPUT_DEVICE,
+        AUDIO_SAVE_NATIVE_DEBUG,
+        AUDIO_SPEECH_START_CHUNKS,
+        AUDIO_THRESHOLD_MULTIPLIER,
+        CYCLE_RETRY_DELAY,
+        DEFAULT_BLEATS_DIR,
+        DEFAULT_DEVICE,
+        DEFAULT_LOG_LEVEL,
+        DEFAULT_RUNTIME_DIR,
+        DEFAULT_STT_MODEL,
+        DEFAULT_VOICE,
+        DEFAULT_INPUT_WAV,
+        MAX_RECORDING_DURATION,
+        MIC_RETRY_INITIAL_DELAY,
+        MIC_RETRY_MAX_DELAY,
+        MIN_SPEECH_DURATION,
+        PRE_ROLL_DURATION,
+        SILENCE_DURATION,
+        SILENCE_THRESHOLD,
+    )
 except ImportError:
-    from src import config as app_config
+    from src.config import (
+        AUDIO_AUTO_CALIBRATE,
+        AUDIO_CALIBRATION_DURATION,
+        AUDIO_CAPTURE_CHANNELS,
+        AUDIO_CAPTURE_RATE,
+        AUDIO_CHANNEL_MODE,
+        AUDIO_INPUT_DEVICE,
+        AUDIO_MAX_WAIT_FOR_SPEECH,
+        AUDIO_MINIMUM_AUTO_THRESHOLD,
+        AUDIO_OUTPUT_DEVICE,
+        AUDIO_SAVE_NATIVE_DEBUG,
+        AUDIO_SPEECH_START_CHUNKS,
+        AUDIO_THRESHOLD_MULTIPLIER,
+        CYCLE_RETRY_DELAY,
+        DEFAULT_BLEATS_DIR,
+        DEFAULT_DEVICE,
+        DEFAULT_LOG_LEVEL,
+        DEFAULT_RUNTIME_DIR,
+        DEFAULT_STT_MODEL,
+        DEFAULT_VOICE,
+        DEFAULT_INPUT_WAV,
+        MAX_RECORDING_DURATION,
+        MIC_RETRY_INITIAL_DELAY,
+        MIC_RETRY_MAX_DELAY,
+        MIN_SPEECH_DURATION,
+        PRE_ROLL_DURATION,
+        SILENCE_DURATION,
+        SILENCE_THRESHOLD,
+    )
 
 
 logger = logging.getLogger("talking_sheep")
 
 DeviceSelector = Optional[Union[int, str]]
-
-
-# Existing configuration values
-DEFAULT_BLEATS_DIR = getattr(app_config, "DEFAULT_BLEATS_DIR", "assets/bleats")
-DEFAULT_DEVICE = getattr(app_config, "DEFAULT_DEVICE", "cpu")
-DEFAULT_LOG_LEVEL = getattr(app_config, "DEFAULT_LOG_LEVEL", "INFO")
-DEFAULT_RUNTIME_DIR = getattr(app_config, "DEFAULT_RUNTIME_DIR", "runtime")
-DEFAULT_STT_MODEL = getattr(app_config, "DEFAULT_STT_MODEL", "tiny")
-DEFAULT_VOICE = getattr(app_config, "DEFAULT_VOICE", "diem_trinh")
-
-AUDIO_INPUT_DEVICE = getattr(app_config, "AUDIO_INPUT_DEVICE", None)
-AUDIO_OUTPUT_DEVICE = getattr(app_config, "AUDIO_OUTPUT_DEVICE", None)
-
-SILENCE_THRESHOLD = getattr(app_config, "SILENCE_THRESHOLD", 500.0)
-SILENCE_DURATION = getattr(app_config, "SILENCE_DURATION", 1.0)
-MIN_SPEECH_DURATION = getattr(app_config, "MIN_SPEECH_DURATION", 0.3)
-MAX_RECORDING_DURATION = getattr(app_config, "MAX_RECORDING_DURATION", 15.0)
-PRE_ROLL_DURATION = getattr(app_config, "PRE_ROLL_DURATION", 0.25)
-
-# Optional microphone-negotiation configuration. These defaults preserve
-# compatibility with older config.py files.
-AUDIO_CAPTURE_RATE = getattr(app_config, "AUDIO_CAPTURE_RATE", None)
-AUDIO_CAPTURE_CHANNELS = getattr(app_config, "AUDIO_CAPTURE_CHANNELS", None)
-AUDIO_CHANNEL_MODE = getattr(app_config, "AUDIO_CHANNEL_MODE", "auto")
-AUDIO_AUTO_CALIBRATE = getattr(app_config, "AUDIO_AUTO_CALIBRATE", True)
-AUDIO_CALIBRATION_DURATION = getattr(
-    app_config, "AUDIO_CALIBRATION_DURATION", 0.75
-)
-AUDIO_THRESHOLD_MULTIPLIER = getattr(
-    app_config, "AUDIO_THRESHOLD_MULTIPLIER", 3.0
-)
-AUDIO_MINIMUM_AUTO_THRESHOLD = getattr(
-    app_config, "AUDIO_MINIMUM_AUTO_THRESHOLD", 150.0
-)
-AUDIO_SPEECH_START_CHUNKS = getattr(
-    app_config, "AUDIO_SPEECH_START_CHUNKS", 3
-)
-AUDIO_MAX_WAIT_FOR_SPEECH = getattr(
-    app_config, "AUDIO_MAX_WAIT_FOR_SPEECH", None
-)
-AUDIO_SAVE_NATIVE_DEBUG = getattr(
-    app_config, "AUDIO_SAVE_NATIVE_DEBUG", False
-)
-
-MIC_RETRY_INITIAL_DELAY = getattr(
-    app_config, "MIC_RETRY_INITIAL_DELAY", 2.0
-)
-MIC_RETRY_MAX_DELAY = getattr(app_config, "MIC_RETRY_MAX_DELAY", 10.0)
-CYCLE_RETRY_DELAY = getattr(app_config, "CYCLE_RETRY_DELAY", 1.0)
 
 
 def _parse_device_selector(value: str) -> DeviceSelector:
@@ -213,7 +220,7 @@ def run_once(
         from src.voice_layer import create_spoken_response
 
     input_wav = recorder.capture_utterance(
-        output_path=runtime_dir / "input.wav",
+        output_path=runtime_dir / DEFAULT_INPUT_WAV,
         silence_threshold=silence_threshold,
         silence_duration=silence_duration,
     )

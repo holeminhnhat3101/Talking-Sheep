@@ -3,6 +3,11 @@ from typing import Optional
 import importlib
 import os
 
+try:
+    from .config import DEFAULT_STT_MODEL, WHISPER_ALLOWED_MODELS
+except ImportError:
+    from src.config import DEFAULT_STT_MODEL, WHISPER_ALLOWED_MODELS
+
 
 class VietnameseSTT:
     """Vietnamese Speech-to-Text using Whisper."""
@@ -15,9 +20,11 @@ class VietnameseSTT:
             model_size: Model size (tiny, base, small, medium, large)
                         tiny is fastest for Raspberry Pi
         """
-        model_size = model_size or os.environ.get("WHISPER_MODEL", "tiny")
-        if model_size not in {"tiny", "base"}:
-            raise ValueError("WHISPER_MODEL must be one of: tiny, base")
+        model_size = model_size or os.environ.get("WHISPER_MODEL", DEFAULT_STT_MODEL)
+        if model_size not in WHISPER_ALLOWED_MODELS:
+            raise ValueError(
+                f"WHISPER_MODEL must be one of: {', '.join(WHISPER_ALLOWED_MODELS)}"
+            )
         try:
             whisper = importlib.import_module("whisper")
         except ImportError as exc:

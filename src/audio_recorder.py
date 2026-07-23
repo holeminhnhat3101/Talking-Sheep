@@ -10,6 +10,53 @@ from typing import Optional
 import numpy as np
 import pyaudio
 
+try:
+    from .config import (
+        AUDIO_AUTO_CALIBRATE,
+        AUDIO_CALIBRATION_DURATION,
+        AUDIO_CAPTURE_CHANNELS,
+        AUDIO_CAPTURE_RATE,
+        AUDIO_CHANNEL_MODE,
+        AUDIO_MAX_WAIT_FOR_SPEECH,
+        AUDIO_MINIMUM_AUTO_THRESHOLD,
+        AUDIO_SAVE_NATIVE_DEBUG,
+        AUDIO_SPEECH_START_CHUNKS,
+        AUDIO_THRESHOLD_MULTIPLIER,
+        AUDIO_CHUNK_SIZE,
+        DEFAULT_INPUT_WAV,
+        DEFAULT_RUNTIME_DIR,
+        MAX_RECORDING_DURATION,
+        MIN_SPEECH_DURATION,
+        PRE_ROLL_DURATION,
+        SILENCE_DURATION,
+        SILENCE_THRESHOLD,
+        WHISPER_CHANNELS,
+        WHISPER_SAMPLE_RATE,
+    )
+except ImportError:
+    from src.config import (
+        AUDIO_AUTO_CALIBRATE,
+        AUDIO_CALIBRATION_DURATION,
+        AUDIO_CAPTURE_CHANNELS,
+        AUDIO_CAPTURE_RATE,
+        AUDIO_CHANNEL_MODE,
+        AUDIO_MAX_WAIT_FOR_SPEECH,
+        AUDIO_MINIMUM_AUTO_THRESHOLD,
+        AUDIO_SAVE_NATIVE_DEBUG,
+        AUDIO_SPEECH_START_CHUNKS,
+        AUDIO_THRESHOLD_MULTIPLIER,
+        AUDIO_CHUNK_SIZE,
+        DEFAULT_INPUT_WAV,
+        DEFAULT_RUNTIME_DIR,
+        MAX_RECORDING_DURATION,
+        MIN_SPEECH_DURATION,
+        PRE_ROLL_DURATION,
+        SILENCE_DURATION,
+        SILENCE_THRESHOLD,
+        WHISPER_CHANNELS,
+        WHISPER_SAMPLE_RATE,
+    )
+
 logger = logging.getLogger(__name__)
 
 
@@ -22,13 +69,23 @@ class AudioRecorder:
 
     def __init__(
         self,
-        sample_rate: int = 16000,
-        channels: int = 1,
-        chunk_size: int = 1024,
+        sample_rate: int = WHISPER_SAMPLE_RATE,
+        channels: int = WHISPER_CHANNELS,
+        chunk_size: int = AUDIO_CHUNK_SIZE,
         device_index: int | str | None = None,
-        pre_roll_duration: float = 0.25,
-        min_speech_duration: float = 0.3,
-        max_recording_duration: float = 15.0,
+        pre_roll_duration: float = PRE_ROLL_DURATION,
+        min_speech_duration: float = MIN_SPEECH_DURATION,
+        max_recording_duration: float = MAX_RECORDING_DURATION,
+        capture_rate: int | None = AUDIO_CAPTURE_RATE,
+        capture_channels: int | None = AUDIO_CAPTURE_CHANNELS,
+        channel_mode: str = AUDIO_CHANNEL_MODE,
+        auto_calibrate: bool = AUDIO_AUTO_CALIBRATE,
+        calibration_duration: float = AUDIO_CALIBRATION_DURATION,
+        threshold_multiplier: float = AUDIO_THRESHOLD_MULTIPLIER,
+        minimum_auto_threshold: float = AUDIO_MINIMUM_AUTO_THRESHOLD,
+        speech_start_chunks: int = AUDIO_SPEECH_START_CHUNKS,
+        max_wait_for_speech: float | None = AUDIO_MAX_WAIT_FOR_SPEECH,
+        save_native_debug: bool = AUDIO_SAVE_NATIVE_DEBUG,
     ) -> None:
         if sample_rate <= 0 or channels != 1 or chunk_size <= 0:
             raise ValueError("Whisper output must be mono with a positive rate and chunk size")
@@ -40,6 +97,16 @@ class AudioRecorder:
         self.pre_roll_duration = pre_roll_duration
         self.min_speech_duration = min_speech_duration
         self.max_recording_duration = max_recording_duration
+        self.capture_rate = capture_rate
+        self.capture_channels = capture_channels
+        self.channel_mode = channel_mode
+        self.auto_calibrate = auto_calibrate
+        self.calibration_duration = calibration_duration
+        self.threshold_multiplier = threshold_multiplier
+        self.minimum_auto_threshold = minimum_auto_threshold
+        self.speech_start_chunks = max(1, int(speech_start_chunks))
+        self.max_wait_for_speech = max_wait_for_speech
+        self.save_native_debug = save_native_debug
 
         self.audio = pyaudio.PyAudio()
         self._closed = False
@@ -125,9 +192,24 @@ class AudioRecorder:
         default_rate = device["default_sample_rate"]
 
         rates = self._unique(
-            [default_rate, 48000, 44100, 32000, self.sample_rate, 16000]
+            [
+                *( [self.capture_rate] if self.capture_rate else [] ),
+                default_rate,
+                48000,
+                44100,
+                32000,
+                self.sample_rate,
+                WHISPER_SAMPLE_RATE,
+            ]
         )
-        channel_counts = self._unique([max_channels, 1, min(2, max_channels)])
+        channel_counts = self._unique(
+            [
+                *( [self.capture_channels] if self.capture_channels else [] ),
+                max_channels,
+                1,
+                min(2, max_channels),
+            ]
+        )
         formats = [pyaudio.paInt16, pyaudio.paFloat32]
 
         configs = [
@@ -195,8 +277,8 @@ class AudioRecorder:
     def capture_utterance(
         self,
         output_path: Optional[Path] = None,
-        silence_threshold: Optional[float] = 500,
-        silence_duration: float = 1.0,
+        silence_threshold: Optional[float] = SILENCE_THRESHOLD,
+        silence_duration: float = SILENCE_DURATION,
         device_index: int | str | None = None,
     ) -> Optional[Path]:
         """Capture natively, then convert to Whisper's 16 kHz mono WAV."""
@@ -205,7 +287,9 @@ class AudioRecorder:
         if silence_duration <= 0:
             raise ValueError("silence_duration must be positive")
 
-        output_path = Path(output_path or "runtime/input.wav")
+        output_path = Path(
+            output_path or Path(DEFAULT_RUNTIME_DIR) / DEFAULT_INPUT_WAV
+        )
         output_path.parent.mkdir(parents=True, exist_ok=True)
 
         old_selector = self.device_selector
@@ -229,11 +313,12 @@ class AudioRecorder:
                 1, round(silence_duration / chunk_seconds)
             )
 
-            threshold = (
-                float(silence_threshold)
-                if silence_threshold is not None
-                else self._calibrate_threshold(stream, config)
-            )
+            if silence_threshold is not None:
+                threshold = float(silence_threshold)
+            elif self.auto_calibrate:
+                threshold = self._calibrate_threshold(stream, config)
+            else:
+                threshold = self.minimum_auto_threshold
 
             frames: list[bytes] = []
             speech_chunks = 0
@@ -241,6 +326,7 @@ class AudioRecorder:
             trailing_silence = 0
             recording_started = None
             read_errors = 0
+            wait_started = time.monotonic()
 
             print("Recording... (speak now)")
 
@@ -262,11 +348,22 @@ class AudioRecorder:
                 rms = self._rms(data, audio_format, channels)
 
                 if recording_started is None:
+                    if (
+                        self.max_wait_for_speech is not None
+                        and time.monotonic() - wait_started
+                        >= self.max_wait_for_speech
+                    ):
+                        logger.info(
+                            "No speech detected within %.2f seconds",
+                            self.max_wait_for_speech,
+                        )
+                        return None
+
                     pre_roll.append(data)
                     consecutive_speech = (
                         consecutive_speech + 1 if rms >= threshold else 0
                     )
-                    if consecutive_speech < 3:
+                    if consecutive_speech < self.speech_start_chunks:
                         continue
 
                     frames.extend(pre_roll)
@@ -294,7 +391,19 @@ class AudioRecorder:
                 return None
 
             native = self._decode(b"".join(frames), audio_format, channels)
-            mono = self._best_channel(native)
+
+            if self.save_native_debug:
+                native_path = output_path.with_name(
+                    f"{output_path.stem}_native{output_path.suffix}"
+                )
+                with wave.open(str(native_path), "wb") as native_wav:
+                    native_wav.setnchannels(channels)
+                    native_wav.setsampwidth(2)
+                    native_wav.setframerate(rate)
+                    native_wav.writeframes(self._to_int16(native).tobytes())
+                logger.info("Saved native debug capture to %s", native_path)
+
+            mono = self._select_channel(native)
             mono = self._resample(mono, rate, self.sample_rate)
             pcm = self._to_int16(mono)
 
@@ -337,7 +446,9 @@ class AudioRecorder:
         """Use half a second of ambient audio when no fixed threshold is given."""
         values = []
 
-        for _ in range(max(1, round(0.5 * config["rate"] / self.chunk_size))):
+        for _ in range(
+            max(1, round(self.calibration_duration * config["rate"] / self.chunk_size))
+        ):
             try:
                 data = stream.read(self.chunk_size, exception_on_overflow=False)
             except (IOError, OSError):
@@ -345,7 +456,10 @@ class AudioRecorder:
             values.append(self._rms(data, config["format"], config["channels"]))
 
         ambient = float(np.median(values)) if values else 0.0
-        threshold = max(150.0, ambient * 3.0)
+        threshold = max(
+            self.minimum_auto_threshold,
+            ambient * self.threshold_multiplier,
+        )
         logger.info(
             "Ambient RMS %.1f; speech threshold %.1f",
             ambient,
@@ -375,6 +489,26 @@ class AudioRecorder:
             np.mean(np.square(samples, dtype=np.float64), axis=0)
         )
         return float(np.max(channel_rms) * 32768.0)
+
+    def _select_channel(self, samples: np.ndarray) -> np.ndarray:
+        mode = self.channel_mode.strip().lower()
+        if samples.shape[1] == 1:
+            return samples[:, 0]
+        if mode in {"auto", "best-energy", "beamformed"}:
+            return self._best_channel(samples)
+        if mode == "first":
+            return samples[:, 0]
+        if mode == "mix":
+            return np.asarray(samples.mean(axis=1), dtype=np.float32)
+        if mode.startswith("channel:"):
+            channel_index = int(mode.split(":", 1)[1])
+            if channel_index < 0 or channel_index >= samples.shape[1]:
+                raise ValueError(
+                    f"channel mode {self.channel_mode!r} is out of range "
+                    f"for {samples.shape[1]} channel(s)"
+                )
+            return samples[:, channel_index]
+        return self._best_channel(samples)
 
     @staticmethod
     def _best_channel(samples: np.ndarray) -> np.ndarray:
