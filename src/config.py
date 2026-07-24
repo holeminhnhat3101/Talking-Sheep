@@ -1,6 +1,10 @@
 """Cấu hình ứng dụng trung tâm cho Talking Sheep."""
 
 import os
+from pathlib import Path
+
+
+REPO_ROOT = Path(__file__).resolve().parent.parent
 
 
 def _float(
@@ -12,12 +16,31 @@ def _float(
     try:
         value = float(os.environ.get(name, default))
     except (TypeError, ValueError) as exc:
-        raise ValueError(f"{name} must be numeric") from exc
+        raise ValueError(f"{name} phải là một số") from exc
 
     if minimum is not None and value < minimum:
-        raise ValueError(f"{name} must be at least {minimum}")
+        raise ValueError(f"{name} phải lớn hơn hoặc bằng {minimum}")
     if maximum is not None and value > maximum:
-        raise ValueError(f"{name} must be at most {maximum}")
+        raise ValueError(f"{name} phải nhỏ hơn hoặc bằng {maximum}")
+
+    return value
+
+
+def _int(
+    name: str,
+    default: int,
+    minimum: int | None = None,
+    maximum: int | None = None,
+) -> int:
+    try:
+        value = int(os.environ.get(name, default))
+    except (TypeError, ValueError) as exc:
+        raise ValueError(f"{name} phải là số nguyên") from exc
+
+    if minimum is not None and value < minimum:
+        raise ValueError(f"{name} phải lớn hơn hoặc bằng {minimum}")
+    if maximum is not None and value > maximum:
+        raise ValueError(f"{name} phải nhỏ hơn hoặc bằng {maximum}")
 
     return value
 
@@ -31,11 +54,11 @@ def _device(name: str) -> int | None:
         return int(value)
     except ValueError as exc:
         raise ValueError(
-            f"{name} must be an integer device index or unset"
+            f"{name} phải là chỉ số thiết bị dạng số nguyên hoặc để trống"
         ) from exc
 
 
-# LLM Local
+# Local LLM
 LLM_MODEL_REPO = "ggml-org/Qwen3-1.7B-GGUF"
 LLM_MODEL_FILENAME = "Qwen3-1.7B-Q4_K_M.gguf"
 
@@ -58,37 +81,72 @@ LLM_N_BATCH_MAX = 256
 LLM_CONTEXT = 2048
 
 
-# Chuyển giọng nói thành văn bản
-STT_DEFAULT_MODEL = "tiny"
-STT_ALLOWED_MODELS = ("tiny", "base")
+# Native-streaming Vietnamese STT: Zipformer + sherpa-onnx
+STT_MODEL_REPO = "hynt/Zipformer-30M-RNNT-Streaming-6000h"
 
-STT_MODEL_IDS = {
-    "tiny": "vinai/PhoWhisper-tiny",
-    "base": "vinai/PhoWhisper-base",
-}
+STT_MODEL_DIR = Path(
+    os.environ.get(
+        "STT_MODEL_DIR",
+        REPO_ROOT / "models" / "zipformer-vi-streaming",
+    )
+).expanduser().resolve()
+
+STT_ENCODER_FILENAME = (
+    "encoder-epoch-31-avg-11-chunk-32-left-128.fp16.onnx"
+)
+STT_DECODER_FILENAME = (
+    "decoder-epoch-31-avg-11-chunk-32-left-128.fp16.onnx"
+)
+STT_JOINER_FILENAME = (
+    "joiner-epoch-31-avg-11-chunk-32-left-128.fp16.onnx"
+)
+
+# The repository renamed its token table from tokens.txt to config.json.
+STT_TOKENS_FILENAME = "config.json"
+STT_BPE_FILENAME = "bpe.model"
+
+STT_ENCODER_PATH = STT_MODEL_DIR / STT_ENCODER_FILENAME
+STT_DECODER_PATH = STT_MODEL_DIR / STT_DECODER_FILENAME
+STT_JOINER_PATH = STT_MODEL_DIR / STT_JOINER_FILENAME
+STT_TOKENS_PATH = STT_MODEL_DIR / STT_TOKENS_FILENAME
+STT_BPE_PATH = STT_MODEL_DIR / STT_BPE_FILENAME
+
+STT_SAMPLE_RATE = 16000
+STT_CHANNELS = 1
+
+STT_PROVIDER = os.environ.get("STT_PROVIDER", "cpu").strip() or "cpu"
+STT_NUM_THREADS = _int("STT_NUM_THREADS", 2, 1)
+STT_DECODING_METHOD = os.environ.get(
+    "STT_DECODING_METHOD",
+    "greedy_search",
+).strip() or "greedy_search"
+
+STT_MAX_ACTIVE_PATHS = _int("STT_MAX_ACTIVE_PATHS", 4, 1)
+STT_ENABLE_ENDPOINT_DETECTION = False
+STT_LOG_PARTIALS = os.environ.get(
+    "STT_LOG_PARTIALS",
+    "",
+).strip().lower() in {"1", "true", "yes"}
 
 
-# Định dạng audio
+# Audio formats
 KOKORO_SAMPLE_RATE = 24000
 TARGET_SAMPLE_RATE = 24000
 TARGET_CHANNELS = 1
 TARGET_SAMPLE_WIDTH = 2
-
-STT_SAMPLE_RATE = 16000
-STT_CHANNELS = 1
 
 AUDIO_CHUNK_SIZE = 1024
 DEFAULT_INPUT_WAV = "input.wav"
 DEFAULT_FINAL_WAV = "final.wav"
 
 
-# Giọng Kokoro
+# Kokoro voice
 SPEAKING_SPEED = 1.0
 DEFAULT_VOICE = "mai_linh"
 DEFAULT_DEVICE = "cpu"
 
 
-# Hiệu ứng cừu
+# Sheep effects
 SILENCE_MS = 100
 BLEAT_FADE_IN_MS = 25
 BLEAT_FADE_OUT_MS = 70
@@ -99,7 +157,7 @@ PAUSE_AFTER_BLEAT_MS = SILENCE_MS
 BLEAT_PROBABILITY = _float("BLEAT_PROBABILITY", 1.0, 0, 1)
 
 
-# Đường dẫn và logging
+# Paths and logging
 DEFAULT_BLEATS_DIR = "assets/bleats"
 DEFAULT_RUNTIME_DIR = "runtime"
 DEFAULT_LOG_LEVEL = "INFO"
@@ -141,7 +199,7 @@ AUDIO_MAX_WAIT_FOR_SPEECH = None
 AUDIO_SAVE_NATIVE_DEBUG = False
 
 
-# Độ trễ thử lại
+# Retry delays
 MIC_RETRY_INITIAL_DELAY = _float(
     "MIC_RETRY_INITIAL_DELAY",
     2.0,

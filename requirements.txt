@@ -1,16 +1,14 @@
 # Voice layer dependencies for Talking Sheep
 
-# Existing LLM dependencies
+# Local LLM
 llama-cpp-python>=0.3.0
 huggingface-hub>=0.24.0
 
-# Audio processing
+# Audio capture and processing
 pyaudio>=0.2.13
 pydub>=0.25.1
-
-# Speech-to-Text (Vietnamese)
-openai-whisper>=20230314
-
-# Audio / numeric
 soundfile>=0.12.0
 numpy>=1.24.0
+
+# Native-streaming Vietnamese STT
+sherpa-onnx>=1.13.0

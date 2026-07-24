@@ -1,132 +1,239 @@
 # Talking Sheep
- 
-Một trợ lý giọng nói tiếng Việt chạy offline trên Raspberry Pi 5, có thể nghe người dùng nói, chuyển giọng nói thành văn bản, tạo câu trả lời bằng LLM local, đọc câu trả lời bằng TTS tiếng Việt và phát âm thanh qua loa.
- 
+
+Talking Sheep là một trợ lý giọng nói tiếng Việt chạy offline trên Raspberry Pi 5, có thể nghe qua microphone, nhận dạng giọng nói cục bộ, tạo câu trả lời bằng LLM local và phát lại bằng giọng nói tiếng Việt.
+
 ## Tính năng
- 
-- Ghi âm từ microphone với VAD (Voice Activity Detection)
-- Thu âm theo sample rate native của thiết bị
-- Chuyển đổi audio sang 16 kHz mono cho STT
-- Nhận dạng giọng nói tiếng Việt bằng PhoWhisper
-- Suy luận bằng LLM local (Qwen3-1.7B-Q4_K_M.gguf)
-- Loại bỏ khối `````` và code blocks khỏi output LLM trước khi lưu history
-- Chia câu dựa trên dấu câu . ! ?
-- Tổng hợp giọng nói bằng Kokoro Vietnamese
-- Chèn tiếng cừu tùy chọn từ `assets/bleats`
-- Xuất file `runtime/final.wav`
-- Phát audio đồng bộ qua loa
-- Lưu lịch sử hội thoại ngắn (tối đa 4 cặp)
- 
-## Kiến trúc
- 
-```
-Microphone
-→ AudioRecorder (VAD, native rate → 16 kHz mono)
-→ Vietnamese STT (PhoWhisper)
-→ Local LLM (Qwen3-1.7B-Q4_K_M.gguf)
-→ Làm sạch output (loại bỏ `````` và code blocks)
-→ Chia câu
-→ Kokoro Vietnamese TTS
-→ Chèn tiếng cừu tùy chọn
-→ runtime/final.wav
-→ AudioPlayer
-```
- 
-**Giải thích các bước:**
-- **AudioRecorder**: Ghi âm từ microphone với VAD, tự động điều chỉnh theo sample rate native của thiết bị, chuyển đổi sang 16 kHz mono cho STT
-- **Vietnamese STT**: Sử dụng PhoWhisper model để chuyển giọng nói tiếng Việt thành văn bản
-- **Local LLM**: Suy luận bằng Qwen3-1.7B-Q4_K_M.gguf qua llama-cpp-python, trả lời bằng tiếng Việt
-- **Làm sạch output**: Loại bỏ các khối `````` và code blocks khỏi câu trả lời trước khi lưu vào history và gửi sang TTS
-- **Chia câu**: Tách câu dựa trên dấu câu . ! ? để tổng hợp từng câu riêng biệt
-- **Kokoro Vietnamese TTS**: Tổng hợp giọng nói tiếng Việt với voice mặc định là `mai_linh`
-- **Chèn tiếng cừu**: Chèn ngẫu nhiên file WAV từ `assets/bleats` sau câu đầu tiên (nếu có ít nhất 2 câu)
-- **AudioPlayer**: Phát file `runtime/final.wav` đồng bộ qua loa
- 
-## Yêu cầu phần cứng
- 
-- Raspberry Pi 5
-- RAM: Tối thiểu 8Gb
-- Microphone USB hoặc tích hợp
+
+- Nhận dạng giọng nói tiếng Việt theo thời gian thực bằng Zipformer và `sherpa-onnx`
+- Tạo câu trả lời local bằng Qwen3 1.7B qua `llama-cpp-python`
+- Tổng hợp giọng nói tiếng Việt bằng Kokoro Vietnamese
+- Thu âm theo định dạng native của microphone với VAD, pre-roll, chọn kênh và resampling tự động
+- Chèn tiếng cừu tùy chọn giữa các câu nói
+- Hoạt động hoàn toàn local sau khi dependencies và model đã được cài đặt
+
+## Yêu cầu
+
+- Raspberry Pi 5, khuyến nghị 8 GB RAM
+- Raspberry Pi OS 64-bit
+- Python 3.10 trở lên
+- Microphone tương thích PortAudio
 - Loa hoặc thiết bị audio output
-- Dung lượng lưu trữ: ~5 GB cho model và môi trường Python
- 
-## Yêu cầu phần mềm
- 
-- Hệ điều hành: Raspberry Pi OS (64-bit)
-- Python: 3.8+
-- Các package hệ thống: python3-venv, python3-dev, build-essential, cmake, pkg-config, portaudio19-dev, libasound2-dev, ffmpeg, libsndfile1, alsa-utils
-- Dependencies Python: llama-cpp-python, huggingface-hub, numpy, soundfile, pyaudio, pydub, onnxruntime, requests, PyYAML, transformers, torch
-- Model runtime: Qwen3-1.7B-Q4_K_M.gguf (tự động tải từ HuggingFace nếu chưa có)
-- STT model: PhoWhisper (tiny hoặc base)
-- TTS engine: Kokoro Vietnamese (ONNX runtime)
- 
+- Khuyến nghị sử dụng tản nhiệt chủ động
+
 ## Cài đặt
- 
+
+Clone repository:
+
 ```bash
 git clone <repository-url>
 cd Talking-Sheep
+```
+
+Cho phép chạy script khởi động:
+
+```bash
 chmod +x run-chat.sh
+```
+
+Cài dependencies, tải model và khởi động ứng dụng:
+
+```bash
 ./run-chat.sh
 ```
- 
-Script `run-chat.sh` sẽ tự động:
-1. Kiểm tra hệ điều hành 64-bit
-2. Cài đặt các package hệ thống cần thiết
-3. Tạo virtual environment `.venv`
-4. Cài đặt Python dependencies từ `requirements-rpi.txt`
-5. Cài đặt Kokoro Vietnamese với ONNX support
-6. Tải LLM model Qwen3-1.7B-Q4_K_M.gguf vào thư mục `models/`
-7. Khởi động ứng dụng
- 
-## Cấu hình
- 
-Các biến môi trường tùy chọn(điều chỉnh prompt và các tham số khác trong `src/config.py`):
- 
-- `LLM_MODEL_PATH`: Đường dẫn đến file GGUF (mặc định: `models/Qwen3-1.7B-Q4_K_M.gguf`)
-- `LLM_AUTO_DOWNLOAD`: Tự động tải model (mặc định: `1`)
-- `LLM_CONTEXT`: Context window size (mặc định: `2048`)
-- `LLM_THREADS`: Số thread LLM (mặc định: số CPU cores)
-- `AUDIO_INPUT_DEVICE`: Index thiết bị microphone
-- `AUDIO_OUTPUT_DEVICE`: Index thiết bị loa
-- `SILENCE_THRESHOLD`: Ngưỡng âm thanh cho VAD (mặc định: `250`)
-- `BLEAT_PROBABILITY`: Xác suất chèn tiếng cừu (mặc định: `1.0`)
- 
+
+Lần chạy đầu có thể mất vài phút vì script sẽ cài package hệ thống, tạo `.venv`, cài Python dependencies và tải các model cần thiết.
+
 ## Sử dụng
- 
-Sau khi chạy script, ứng dụng sẽ:
-1. Hiển thị thông báo "🐑 Talking Sheep sẵn sàng! Nhấn Ctrl+C để thoát."
-2. Lắng nghe từ microphone
-3. Khi phát hiện giọng nói, ghi âm và chuyển thành văn bản
-4. Gửi văn bản đến LLM để tạo câu trả lời
-5. Tổng hợp câu trả lời thành giọng nói tiếng Việt
-6. Phát câu trả lời qua loa
-7. Lặp lại quy trình cho đến khi nhấn Ctrl+C
- 
-## Giới hạn
- 
-- Chỉ hoạt động trên Raspberry Pi 5 với Raspberry Pi OS 64-bit
-- STT chỉ hỗ trợ tiếng Việt với model PhoWhisper (tiny hoặc base)
-- LLM context giới hạn 2048 tokens
-- Lịch sử hội thoại chỉ lưu tối đa 4 cặp user-assistant
-- TTS chỉ hỗ trợ voice tiếng Việt có sẵn trong Kokoro Vietnamese
-- Không hỗ trợ streaming audio (ghi âm và phát diễn ra tuần tự)
- 
-## Cấu trúc thư mục
- 
+
+Khởi động Talking Sheep:
+
+```bash
+./run-chat.sh
 ```
+
+Liệt kê microphone được phát hiện:
+
+```bash
+./run-chat.sh --list-mics
+```
+
+Chọn microphone:
+
+```bash
+./run-chat.sh --input-device 1
+```
+
+Dùng hiệu chuẩn VAD tự động:
+
+```bash
+./run-chat.sh --silence-threshold auto
+```
+
+Bật debug logging:
+
+```bash
+./run-chat.sh --log-level DEBUG
+```
+
+Hiển thị toàn bộ tùy chọn:
+
+```bash
+./run-chat.sh --help
+```
+
+Nhấn `Ctrl+C` để dừng ứng dụng.
+
+## Cách hoạt động
+
+```text
+Microphone
+→ AudioRecorder
+→ VAD và pre-roll
+→ Audio mono float32 16 kHz
+→ Zipformer streaming STT
+→ Qwen3 local LLM
+→ Kokoro Vietnamese TTS
+→ Tiếng cừu tùy chọn
+→ AudioPlayer
+→ Loa
+```
+
+STT recognizer, LLM và TTS engine được load một lần và tái sử dụng qua nhiều lượt hội thoại.
+
+Thu âm và phát audio diễn ra tuần tự. Microphone không ghi âm trong lúc trợ lý đang nói.
+
+## Model
+
+### Speech-to-Text
+
+```text
+hynt/Zipformer-30M-RNNT-Streaming-6000h
+```
+
+Runtime:
+
+```text
+sherpa-onnx
+```
+
+### Language Model
+
+```text
+Qwen3-1.7B-Q4_K_M.gguf
+```
+
+Runtime:
+
+```text
+llama-cpp-python
+```
+
+### Text-to-Speech
+
+```text
+Kokoro Vietnamese
+```
+
+Giọng mặc định:
+
+```text
+mai_linh
+```
+
+## Cấu hình
+
+Cấu hình mặc định nằm trong:
+
+```text
+src/config.py
+```
+
+Một số biến môi trường thường dùng:
+
+```bash
+LLM_MODEL_PATH=/path/to/model.gguf
+STT_MODEL_DIR=/path/to/zipformer
+STT_NUM_THREADS=2
+AUDIO_INPUT_DEVICE=1
+AUDIO_OUTPUT_DEVICE=0
+SILENCE_THRESHOLD=250
+BLEAT_PROBABILITY=1.0
+```
+
+Ví dụ:
+
+```bash
+STT_NUM_THREADS=4 BLEAT_PROBABILITY=0 ./run-chat.sh
+```
+
+## Cấu trúc dự án
+
+```text
 Talking-Sheep/
 ├── src/
-│   ├── audio_recorder.py    # Ghi âm với VAD
-│   ├── vietnamese_stt.py     # PhoWhisper STT
-│   ├── chat_llm.py           # LLM wrapper
-│   ├── voice_layer.py        # TTS và chèn tiếng cừu
-│   ├── audio_player.py       # Phát audio
-│   ├── config.py             # Cấu hình
-│   └── talking_sheep_voice.py # Entry point
-├── Kokoro-Vietnamese/        # TTS engine (vendored)
+│   ├── audio_player.py
+│   ├── audio_recorder.py
+│   ├── chat_llm.py
+│   ├── config.py
+│   ├── talking_sheep_voice.py
+│   ├── vietnamese_stt.py
+│   └── voice_layer.py
+├── Kokoro-Vietnamese/
 ├── assets/
-│   └── bleats/               # File WAV tiếng cừu
-├── models/                   # LLM model GGUF
-├── runtime/                  # File audio tạm thời
-├── requirements-rpi.txt      # Dependencies cho Raspberry Pi
-└── run-chat.sh               # Script khởi động
+│   └── bleats/
+├── models/
+├── runtime/
+├── requirements.txt
+├── requirements-rpi.txt
+├── run-chat.sh
+└── README.md
+```
+
+## Xử lý lỗi
+
+Kiểm tra microphone:
+
+```bash
+./run-chat.sh --list-mics
+arecord -l
+```
+
+Kiểm tra thiết bị phát:
+
+```bash
+aplay -l
+```
+
+Nếu VAD không phát hiện giọng nói:
+
+```bash
+./run-chat.sh --silence-threshold auto
+```
+
+Nếu tiếng ồn nền làm ứng dụng tự ghi âm, tăng threshold:
+
+```bash
+./run-chat.sh --silence-threshold 400
+```
+
+Nếu cài dependency hoặc tải model thất bại, chạy lại:
+
+```bash
+./run-chat.sh
+```
+
+## Tài liệu
+
+Các tài liệu chi tiết về kiến trúc, cấu hình, triển khai và xử lý lỗi nên được đặt trong thư mục `docs/` thay vì mở rộng README này.
+
+
+```
+docs/
+├── architecture.md
+├── configuration.md
+├── deployment.md
+└── troubleshooting.md
+```
+
+## Giấy phép
+Dự án sử dụng nhiều thành phần và model có giấy phép riêng. Hãy kiểm tra giấy phép của Talking Sheep, Qwen, Zipformer, sherpa-onnx, Kokoro Vietnamese và các file audio đi kèm trước khi phân phối hoặc sử dụng thương mại.

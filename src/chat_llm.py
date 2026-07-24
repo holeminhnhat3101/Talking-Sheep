@@ -160,7 +160,7 @@ class LLMChat:
 
         reply = output["choices"][0]["message"]["content"]
 
-        reply = re.sub(r"<think>.*?</think>\s*", "", reply, flags=re.DOTALL)
+        reply = re.sub(r"<think>.*?</think>\s*", "", reply, flags=re.DOTALL) ## Có tác dụng remove tag <think></think> của LLM để tránh lỗi khi synthesize audio
         reply = re.sub(r"```.*?```", "", reply, flags=re.DOTALL).strip()
 
         if reply:

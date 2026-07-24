@@ -5,7 +5,7 @@ Khởi tạo tất cả các thành phần một lần và chạy vòng lặp h�
     microphone
     → thương lượng định dạng native
     → xử lý đa kênh/không gian tùy chọn
-    → đầu vào PhoWhisper 16 kHz mono
+    → đầu vào Zipformer streaming 16 kHz mono
     → LLM
     → Kokoro TTS + tiếng cừu tùy chọn
     → phát đồng bộ
@@ -58,7 +58,6 @@ try:
         PRE_ROLL_DURATION,
         SILENCE_DURATION,
         SILENCE_THRESHOLD,
-        STT_DEFAULT_MODEL,
     )
 except ImportError:
     from src.config import (
@@ -88,7 +87,6 @@ except ImportError:
         PRE_ROLL_DURATION,
         SILENCE_DURATION,
         SILENCE_THRESHOLD,
-        STT_DEFAULT_MODEL,
     )
 
 
@@ -219,46 +217,58 @@ def run_once(
     except ImportError:
         from src.voice_layer import create_spoken_response
 
-    input_wav = recorder.capture_utterance(
-        output_path=runtime_dir / DEFAULT_INPUT_WAV,
-        silence_threshold=silence_threshold,
-        silence_duration=silence_duration,
-    )
+    stt.start_utterance()
+
+    try:
+        input_wav, speech_end_time = recorder.capture_utterance_stream(
+            on_audio_chunk=stt.accept_audio,
+            output_path=runtime_dir / DEFAULT_INPUT_WAV,
+            silence_threshold=silence_threshold,
+            silence_duration=silence_duration,
+        )
+    except BaseException:
+        stt.abort_utterance()
+        raise
+
     if input_wav is None:
+        stt.abort_utterance()
         logger.debug("No usable speech was captured.")
         return False
 
+    try:
+        transcript = stt.finish_utterance(speech_end_time).strip()
+        if not transcript:
+            logger.info("No usable Vietnamese transcription was produced.")
+            return False
 
-    transcript = stt.transcribe(input_wav).strip()
-    if not transcript:
-        logger.info("No usable Vietnamese transcription was produced.")
-        return False
+        logger.info("User transcript: %s", transcript)
 
-    logger.info("User transcript: %s", transcript)
+        response = llm.generate_response(transcript).strip()
+        if not response:
+            logger.warning("LLM produced no usable response.")
+            return False
 
-    response = llm.generate_response(transcript).strip()
-    if not response:
-        logger.warning("LLM produced no usable response.")
-        return False
+        final_wav = create_spoken_response(
+            response_text=response,
+            tts=tts,
+            bleats_dir=bleats_dir,
+            runtime_dir=runtime_dir,
+        )
+        if final_wav is None:
+            logger.warning("TTS produced no final audio file.")
+            return False
 
-    final_wav = create_spoken_response(
-        response_text=response,
-        tts=tts,
-        bleats_dir=bleats_dir,
-        runtime_dir=runtime_dir,
-    )
-    if final_wav is None:
-        logger.warning("TTS produced no final audio file.")
-        return False
+        final_wav_path = Path(final_wav)
+        if not final_wav_path.is_file():
+            logger.warning("Final audio file does not exist: %s", final_wav_path)
+            return False
 
-    final_wav_path = Path(final_wav)
-    if not final_wav_path.is_file():
-        logger.warning("Final audio file does not exist: %s", final_wav_path)
-        return False
-
-    # Playback blocks until completion. Only then may the next recording begin.
-    player.play_blocking(str(final_wav_path))
-    return True
+        # Playback blocks until completion. Only then may the next recording begin.
+        player.play_blocking(str(final_wav_path))
+        return True
+    finally:
+        # Optional debug audio is written outside the speech-end critical path.
+        recorder.save_pending_debug_audio()
 
 
 def run_conversation_loop(
@@ -358,11 +368,6 @@ def parse_args(argv: Optional[list[str]] = None) -> argparse.Namespace:
         default=DEFAULT_DEVICE,
         choices=["cpu", "cuda"],
         help="Thiết bị suy luận TTS",
-    )
-    parser.add_argument(
-        "--stt-model",
-        default=STT_DEFAULT_MODEL,
-        help="Kích thước model PhoWhisper",
     )
     parser.add_argument(
         "--model-root",
@@ -579,9 +584,9 @@ def main(argv: Optional[list[str]] = None) -> None:
             "auto" if args.silence_threshold is None else args.silence_threshold,
         )
 
-        # Persistent PhoWhisper model.
-        stt = VietnameseSTT(model_size=args.stt_model)
-        logger.info("STT ready (model=%s).", args.stt_model)
+        # Persistent Zipformer OnlineRecognizer; one stream per utterance.
+        stt = VietnameseSTT()
+        logger.info("STT ready (streaming Zipformer).")
 
         # Persistent LLM model.
         model_root = Path(args.model_root) if args.model_root else REPO_ROOT
