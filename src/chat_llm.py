@@ -1,4 +1,4 @@
-"""Generic local GGUF chat wrapper."""
+"""Wrapper chat GGUF local tổng quát."""
 
 from collections import deque
 from pathlib import Path
@@ -53,7 +53,7 @@ def load_runtime_dependencies():
 
 
 def ensure_model(model_root: Path | None = None) -> Path:
-    """Return the local GGUF path, downloading it once if missing."""
+    """Trả về đường dẫn GGUF local, tải xuống một lần nếu thiếu."""
     configured = os.getenv("LLM_MODEL_PATH")
 
     if configured:
@@ -128,7 +128,7 @@ def build_messages(
 
 
 class LLMChat:
-    """Reusable local LLM with bounded conversation history."""
+    """LLM local có thể tái sử dụng với lịch sử hội thoại giới hạn."""
 
     def __init__(self, model_root: Path | None = None):
         llama_class = load_runtime_dependencies()

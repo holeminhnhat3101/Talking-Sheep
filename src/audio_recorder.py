@@ -61,11 +61,11 @@ logger = logging.getLogger(__name__)
 
 
 class MicrophoneUnavailableError(RuntimeError):
-    """Raised when no usable microphone stream can be opened."""
+    """Được raise khi không thể mở stream microphone nào được sử dụng."""
 
 
 class AudioRecorder:
-    """Capture any normal PortAudio microphone, then write 16 kHz mono for Whisper."""
+    """Ghi âm từ bất kỳ microphone PortAudio nào, sau đó ghi file 16 kHz mono cho Whisper."""
 
     def __init__(
         self,
@@ -114,7 +114,7 @@ class AudioRecorder:
         self.last_capture_info: dict = {}
 
     def list_input_devices(self) -> list[dict]:
-        """Return every PortAudio input device across all host APIs."""
+        """Trả về mọi thiết bị đầu vào PortAudio trên tất cả host API."""
         devices = []
 
         for index in range(self.audio.get_device_count()):
@@ -281,7 +281,7 @@ class AudioRecorder:
         silence_duration: float = SILENCE_DURATION,
         device_index: int | str | None = None,
     ) -> Optional[Path]:
-        """Capture natively, then convert to Whisper's 16 kHz mono WAV."""
+        """Thu âm theo native, sau đó chuyển đổi sang WAV 16 kHz mono cho Whisper."""
         if self._closed:
             raise RuntimeError("AudioRecorder is closed")
         if silence_duration <= 0:
@@ -473,7 +473,7 @@ class AudioRecorder:
             self.device_selector = old_selector
 
     def _calibrate_threshold(self, stream: pyaudio.Stream, config: dict) -> float:
-        """Use half a second of ambient audio when no fixed threshold is given."""
+        """Sử dụng nửa giây audio môi trường khi không có ngưỡng cố định được đưa ra."""
         values = []
 
         for _ in range(
@@ -504,7 +504,7 @@ class AudioRecorder:
         elif audio_format == pyaudio.paFloat32:
             samples = np.frombuffer(data, dtype="<f4").astype(np.float32)
         else:
-            raise ValueError(f"Unsupported audio format: {audio_format}")
+            raise ValueError(f"Định dạng audio không được hỗ trợ: {audio_format}")
 
         usable = samples.size - samples.size % channels
         return samples[:usable].reshape(-1, channels)
@@ -542,7 +542,7 @@ class AudioRecorder:
 
     @staticmethod
     def _best_channel(samples: np.ndarray) -> np.ndarray:
-        """Keep native channels until selecting one channel for Whisper."""
+        """Giữ các kênh native cho đến khi chọn một kênh cho Whisper."""
         if samples.shape[1] == 1:
             return samples[:, 0]
 
@@ -560,8 +560,8 @@ class AudioRecorder:
         if source_rate == target_rate or samples.size == 0:
             return samples.astype(np.float32, copy=False)
 
-        # ponytail: linear resampling is enough for STT; use resample_poly only
-        # if transcription testing shows a measurable quality problem.
+        # ponytail: resampling tuyến tính là đủ cho STT; chỉ dùng resample_poly
+        # nếu test chuyển cho thấy vấn đề chất lượng đo được.
         target_length = max(1, round(samples.size * target_rate / source_rate))
         return np.interp(
             np.linspace(0, samples.size - 1, target_length),

@@ -1,6 +1,6 @@
-"""Tests for voice layer functionality.
+"""Test cho chức năng lớp giọng nói.
 
-All tests run without hardware, models, or network — pure logic + mocks.
+Tất cả test chạy không cần phần cứng, model, hoặc mạng — logic thuần + mocks.
 """
 
 import sys
@@ -30,11 +30,11 @@ from src.voice_layer import (
 
 
 # ===========================================================================
-# Helpers
+# Helper
 # ===========================================================================
 
 def _make_wav(path: Path, duration_ms: int = 200, sample_rate: int = 24000) -> Path:
-    """Create a minimal valid WAV file with silence."""
+    """Tạo file WAV hợp lệ tối thiểu với im lặng."""
     n_samples = int(sample_rate * duration_ms / 1000)
     path.parent.mkdir(parents=True, exist_ok=True)
     with wave.open(str(path), "wb") as wf:
@@ -46,7 +46,7 @@ def _make_wav(path: Path, duration_ms: int = 200, sample_rate: int = 24000) -> P
 
 
 def _make_mock_tts(duration_ms: int = 100):
-    """Return a mock TTS with a synthesize(text) method returning a short array."""
+    """Trả về mock TTS với method synthesize(text) trả về mảng ngắn."""
     n_samples = int(KOKORO_SAMPLE_RATE * duration_ms / 1000)
     audio = np.zeros(n_samples, dtype=np.float32)
 
@@ -60,12 +60,12 @@ def _make_mock_tts(duration_ms: int = 100):
 # ===========================================================================
 
 def test_split_sentences_single():
-    """Single sentence preserved."""
+    """Câu đơn được giữ nguyên."""
     assert split_sentences("Xin chào.") == ["Xin chào."]
 
 
 def test_split_sentences_multiple():
-    """Multiple sentences split correctly."""
+    """Nhiều câu được tách đúng."""
     assert split_sentences("Xin chào! Bạn khỏe không?") == [
         "Xin chào!",
         "Bạn khỏe không?",
@@ -73,7 +73,7 @@ def test_split_sentences_multiple():
 
 
 def test_split_sentences_periods():
-    """Period-delimited sentences."""
+    """Câu được phân tách bằng dấu chấm."""
     assert split_sentences("Mình ổn. Còn bạn thì sao?") == [
         "Mình ổn.",
         "Còn bạn thì sao?",
@@ -81,7 +81,7 @@ def test_split_sentences_periods():
 
 
 def test_split_sentences_decimal():
-    """Decimal numbers like 3.5 should not trigger a split."""
+    """Số thập phân như 3.5 không nên kích hoạt tách câu."""
     result = split_sentences("Đây là phiên bản 3.5. Nó hoạt động tốt.")
     # "3.5" has a digit before the period — no split there.
     # The period after "tốt" has a non-digit before it — split.
@@ -90,12 +90,12 @@ def test_split_sentences_decimal():
 
 
 def test_split_sentences_no_punctuation():
-    """Text without sentence-ending punctuation stays as one segment."""
+    """Văn bản không có dấu câu kết thúc câu giữ nguyên như một đoạn."""
     assert split_sentences("Không có dấu câu") == ["Không có dấu câu"]
 
 
 def test_split_sentences_complex():
-    """Mixed punctuation types."""
+    """Các loại dấu câu hỗn hợp."""
     result = split_sentences("Xin chào! Mình là một chú cừu thông minh. Bạn muốn hỏi gì?")
     assert result == [
         "Xin chào!",
@@ -105,17 +105,17 @@ def test_split_sentences_complex():
 
 
 def test_split_sentences_empty():
-    """Empty string returns empty list."""
+    """Chuỗi rỗng trả về danh sách rỗng."""
     assert split_sentences("") == []
 
 
 def test_split_sentences_whitespace_only():
-    """Whitespace-only string returns empty list."""
+    """Chuỗi chỉ có khoảng trắng trả về danh sách rỗng."""
     assert split_sentences("   \n\t  ") == []
 
 
 def test_split_sentences_repeated_whitespace():
-    """Repeated whitespace is collapsed."""
+    """Khoảng trắng lặp lại được gộp lại."""
     result = split_sentences("Xin   chào!   Bạn   khỏe  không?")
     assert result == ["Xin chào!", "Bạn khỏe không?"]
 
@@ -125,18 +125,18 @@ def test_split_sentences_repeated_whitespace():
 # ===========================================================================
 
 def test_discover_bleats_missing_dir():
-    """Non-existent directory returns empty list."""
+    """Thư mục không tồn tại trả về danh sách rỗng."""
     assert discover_bleats(Path("/nonexistent/path/bleats")) == []
 
 
 def test_discover_bleats_empty_dir():
-    """Empty directory returns empty list."""
+    """Thư mục rỗng trả về danh sách rỗng."""
     with tempfile.TemporaryDirectory() as tmp:
         assert discover_bleats(Path(tmp)) == []
 
 
 def test_discover_bleats_with_wavs():
-    """Directory with WAV files returns them sorted."""
+    """Thư mục có file WAV trả về chúng đã sắp xếp."""
     with tempfile.TemporaryDirectory() as tmp:
         d = Path(tmp)
         _make_wav(d / "b.wav")
@@ -150,7 +150,7 @@ def test_discover_bleats_with_wavs():
 
 
 def test_discover_bleats_ignores_non_wav():
-    """Non-WAV files are not returned."""
+    """File không phải WAV không được trả về."""
     with tempfile.TemporaryDirectory() as tmp:
         d = Path(tmp)
         (d / "not_audio.mp3").write_bytes(b"\x00" * 10)
@@ -164,18 +164,18 @@ def test_discover_bleats_ignores_non_wav():
 # ===========================================================================
 
 def test_choose_bleat_empty_list():
-    """No bleats available returns None."""
+    """Không có tiếng cừu nào có sẵn trả về None."""
     assert choose_bleat([]) is None
 
 
 def test_choose_bleat_single():
-    """Single bleat is always returned."""
+    """Một tiếng cừu luôn được trả về."""
     p = Path("assets/bleats/happy.wav")
     assert choose_bleat([p]) == p
 
 
 def test_choose_bleat_multiple():
-    """Multiple bleats — returns one of them."""
+    """Nhiều tiếng cừu — trả về một trong số chúng."""
     paths = [Path(f"bleats/{i}.wav") for i in range(5)]
     result = choose_bleat(paths)
     assert result in paths
@@ -186,7 +186,7 @@ def test_choose_bleat_multiple():
 # ===========================================================================
 
 def test_numpy_to_segment_basic():
-    """Float32 array converts to 16-bit mono AudioSegment."""
+    """Mảng float32 chuyển đổi sang AudioSegment mono 16-bit."""
     audio = np.zeros(2400, dtype=np.float32)  # 0.1s at 24kHz
     seg = numpy_to_segment(audio, 24000)
 
@@ -197,7 +197,7 @@ def test_numpy_to_segment_basic():
 
 
 def test_numpy_to_segment_clipping():
-    """Values outside [-1, 1] are clipped."""
+    """Giá trị ngoài [-1, 1] được cắt."""
     audio = np.array([2.0, -2.0, 0.5], dtype=np.float32)
     seg = numpy_to_segment(audio, 24000)
     # Should not raise — clipping handles out-of-range values
@@ -209,13 +209,13 @@ def test_numpy_to_segment_clipping():
 # ===========================================================================
 
 def test_compose_empty():
-    """Empty sentence list produces empty audio."""
+    """Danh sách câu rỗng tạo ra audio rỗng."""
     result = compose_with_bleat([], None)
     assert len(result) == 0
 
 
 def test_compose_single_sentence_no_bleat():
-    """Single sentence — no bleat inserted even if available."""
+    """Một câu — không có tiếng cừu được chèn ngay cả khi có sẵn."""
     seg = numpy_to_segment(np.zeros(2400, dtype=np.float32), 24000)
 
     with tempfile.TemporaryDirectory() as tmp:
@@ -227,7 +227,7 @@ def test_compose_single_sentence_no_bleat():
 
 
 def test_compose_two_sentences_with_bleat():
-    """Two sentences — bleat inserted after the first."""
+    """Hai câu — tiếng cừu được chèn sau câu đầu tiên."""
     seg1 = numpy_to_segment(np.zeros(2400, dtype=np.float32), 24000)  # 100ms
     seg2 = numpy_to_segment(np.zeros(2400, dtype=np.float32), 24000)  # 100ms
 
@@ -241,7 +241,7 @@ def test_compose_two_sentences_with_bleat():
 
 
 def test_compose_max_one_bleat():
-    """Only one bleat is inserted even with many sentences."""
+    """Chỉ một tiếng cừu được chèn ngay cả với nhiều câu."""
     segs = [numpy_to_segment(np.zeros(2400, dtype=np.float32), 24000) for _ in range(5)]
 
     with tempfile.TemporaryDirectory() as tmp:
@@ -257,7 +257,7 @@ def test_compose_max_one_bleat():
 
 
 def test_compose_no_bleat_file():
-    """Missing bleat file causes graceful degradation."""
+    """Thiếu file tiếng cừu gây ra suy thoát êm đẹp."""
     seg = numpy_to_segment(np.zeros(2400, dtype=np.float32), 24000)
     result = compose_with_bleat([seg, seg], Path("/nonexistent/bleat.wav"))
     # Should still produce audio — just two sentences with a pause
@@ -269,7 +269,7 @@ def test_compose_no_bleat_file():
 # ===========================================================================
 
 def test_synthesize_sentences_calls_tts():
-    """TTS is called once per sentence."""
+    """TTS được gọi một lần cho mỗi câu."""
     mock_tts = _make_mock_tts()
     sentences = ["Câu một.", "Câu hai.", "Câu ba."]
 
@@ -280,7 +280,7 @@ def test_synthesize_sentences_calls_tts():
 
 
 def test_synthesize_sentences_empty_audio_skipped():
-    """Sentences producing empty audio are skipped."""
+    """Câu tạo ra audio rỗng bị bỏ qua."""
     mock_tts = MagicMock()
     mock_tts.synthesize.side_effect = [
         (np.zeros(2400, dtype=np.float32), "ok"),  # valid
@@ -293,11 +293,11 @@ def test_synthesize_sentences_empty_audio_skipped():
 
 
 # ===========================================================================
-# create_spoken_response (integration — uses mocks)
+# create_spoken_response (integration — sử dụng mocks)
 # ===========================================================================
 
 def test_create_spoken_response_basic():
-    """End-to-end: produces a final.wav file."""
+    """End-to-end: tạo file final.wav."""
     mock_tts = _make_mock_tts(duration_ms=50)
 
     with tempfile.TemporaryDirectory() as tmp:
@@ -318,7 +318,7 @@ def test_create_spoken_response_basic():
 
 
 def test_create_spoken_response_no_bleats():
-    """Works without any bleat files."""
+    """Hoạt động mà không cần file tiếng cừu nào."""
     mock_tts = _make_mock_tts(duration_ms=50)
 
     with tempfile.TemporaryDirectory() as tmp:
@@ -336,7 +336,7 @@ def test_create_spoken_response_no_bleats():
 
 
 def test_create_spoken_response_empty_text():
-    """Empty text raises ValueError."""
+    """Văn bản rỗng raises ValueError."""
     mock_tts = _make_mock_tts()
 
     with tempfile.TemporaryDirectory() as tmp:
@@ -361,7 +361,7 @@ if __name__ == "__main__":
         import pytest
         pytest.main([__file__, "-v"])
     except ImportError:
-        # Fallback: run all test functions manually
+        # Fallback: chạy tất cả hàm test thủ công
         import traceback
 
         test_functions = [
