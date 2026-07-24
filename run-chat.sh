@@ -85,13 +85,9 @@ VENV_INCLUDE="$(
 
 mkdir -p runtime models assets/bleats
 
-export LLM_MODEL_PATH="${
-    LLM_MODEL_PATH:-$ROOT_DIR/models/Qwen3-1.7B-Q4_K_M.gguf
-}"
+export LLM_MODEL_PATH="${LLM_MODEL_PATH:-$ROOT_DIR/models/Qwen3-1.7B-Q4_K_M.gguf}"
 
-export STT_MODEL_DIR="${
-    STT_MODEL_DIR:-$ROOT_DIR/models/zipformer-vi-streaming
-}"
+export STT_MODEL_DIR="${STT_MODEL_DIR:-$ROOT_DIR/models/zipformer-vi-streaming}"
 
 export OMP_NUM_THREADS="${OMP_NUM_THREADS:-4}"
 
