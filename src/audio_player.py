@@ -21,53 +21,63 @@ except ImportError:
 
 
 class AudioPlayer:
-    """Play WAV files through speaker."""
-    
+    """Phát file WAV đồng bộ."""
+
     def __init__(self, device_index: int | None = None):
         self.audio = pyaudio.PyAudio()
         self.device_index = (
             device_index if device_index is not None else AUDIO_OUTPUT_DEVICE
         )
-        
-    def play_blocking(self, audio_path: str) -> None:
-        """
-        Play audio file and block until completion.
-        
-        Args:
-            audio_path: Path to WAV file
-        """
-        with wave.open(audio_path, 'rb') as wf:
+        self._closed = False
+
+    def play_blocking(self, audio_path: str | Path) -> None:
+        if self._closed:
+            raise RuntimeError("AudioPlayer is closed")
+
+        audio_path = Path(audio_path)
+
+        with wave.open(str(audio_path), "rb") as wav_file:
             if (
-                wf.getnchannels() != TARGET_CHANNELS
-                or wf.getsampwidth() != TARGET_SAMPLE_WIDTH
-                or wf.getframerate() != TARGET_SAMPLE_RATE
+                wav_file.getnchannels() != TARGET_CHANNELS
+                or wav_file.getsampwidth() != TARGET_SAMPLE_WIDTH
+                or wav_file.getframerate() != TARGET_SAMPLE_RATE
             ):
                 raise ValueError(
-                    f"runtime/final.wav must be mono, 16-bit, and "
-                    f"{TARGET_SAMPLE_RATE // 1000} kHz"
+                    f"{audio_path} must be mono, 16-bit, "
+                    f"{TARGET_SAMPLE_RATE} Hz"
                 )
+
             kwargs = {
-                "format": self.audio.get_format_from_width(wf.getsampwidth()),
-                "channels": wf.getnchannels(),
-                "rate": wf.getframerate(),
+                "format": self.audio.get_format_from_width(
+                    wav_file.getsampwidth()
+                ),
+                "channels": wav_file.getnchannels(),
+                "rate": wav_file.getframerate(),
                 "output": True,
             }
+
             if self.device_index is not None:
                 kwargs["output_device_index"] = self.device_index
+
             stream = self.audio.open(**kwargs)
             try:
-                data = wf.readframes(AUDIO_CHUNK_SIZE)
-                while data:
+                while data := wav_file.readframes(AUDIO_CHUNK_SIZE):
                     stream.write(data)
-                    data = wf.readframes(AUDIO_CHUNK_SIZE)
             finally:
-                stream.stop_stream()
-                stream.close()
+                try:
+                    stream.stop_stream()
+                finally:
+                    stream.close()
 
     def close(self) -> None:
-        if hasattr(self, "audio"):
-            self.audio.terminate()
-    
-    def __del__(self):
-        if hasattr(self, 'audio'):
+        if self._closed:
+            return
+
+        self._closed = True
+        self.audio.terminate()
+
+    def __del__(self) -> None:
+        try:
             self.close()
+        except Exception:
+            pass

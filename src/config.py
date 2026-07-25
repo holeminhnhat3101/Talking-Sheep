@@ -1,6 +1,10 @@
-"""Central application configuration for Talking Sheep."""
+"""Cấu hình ứng dụng trung tâm cho Talking Sheep."""
 
 import os
+from pathlib import Path
+
+
+REPO_ROOT = Path(__file__).resolve().parent.parent
 
 
 def _float(
@@ -12,12 +16,31 @@ def _float(
     try:
         value = float(os.environ.get(name, default))
     except (TypeError, ValueError) as exc:
-        raise ValueError(f"{name} must be numeric") from exc
+        raise ValueError(f"{name} phải là một số") from exc
 
     if minimum is not None and value < minimum:
-        raise ValueError(f"{name} must be at least {minimum}")
+        raise ValueError(f"{name} phải lớn hơn hoặc bằng {minimum}")
     if maximum is not None and value > maximum:
-        raise ValueError(f"{name} must be at most {maximum}")
+        raise ValueError(f"{name} phải nhỏ hơn hoặc bằng {maximum}")
+
+    return value
+
+
+def _int(
+    name: str,
+    default: int,
+    minimum: int | None = None,
+    maximum: int | None = None,
+) -> int:
+    try:
+        value = int(os.environ.get(name, default))
+    except (TypeError, ValueError) as exc:
+        raise ValueError(f"{name} phải là số nguyên") from exc
+
+    if minimum is not None and value < minimum:
+        raise ValueError(f"{name} phải lớn hơn hoặc bằng {minimum}")
+    if maximum is not None and value > maximum:
+        raise ValueError(f"{name} phải nhỏ hơn hoặc bằng {maximum}")
 
     return value
 
@@ -31,48 +54,86 @@ def _device(name: str) -> int | None:
         return int(value)
     except ValueError as exc:
         raise ValueError(
-            f"{name} must be an integer device index or unset"
+            f"{name} phải là chỉ số thiết bị dạng số nguyên hoặc để trống"
         ) from exc
 
 
-# PhoGPT
-PHOGPT_MODEL_REPO = "vinai/PhoGPT-4B-Chat-gguf"
-MODEL_FILENAME = "PhoGPT-4B-Chat-Q4_K_M.gguf"
+# Local LLM
+LLM_MODEL_REPO = "ggml-org/Qwen3-1.7B-GGUF"
+LLM_MODEL_FILENAME = "Qwen3-1.7B-Q4_K_M.gguf"
 
-SYSTEM_PROMPT = """Bạn là một con cừu thân thiện.
-Luôn cố gắng suy ra ý định từ câu nói có lỗi nhận dạng giọng nói.
-Nếu câu vẫn hiểu được thì trả lời trực tiếp, không xin lỗi hoặc yêu cầu nói lại.
-Trả lời tối đa 3 câu bằng tiếng Việt."""
+LLM_SYSTEM_PROMPT = """Bạn là một con cừu thân thiện tên là Cừu.
+Luôn trả lời bằng tiếng Việt tự nhiên.
+LUÔN VIẾT ĐẦY ĐỦ DẤU, TỪ VÀ CÂU, không dùng teencode, viết tắt, emoji hoặc ký hiệu mạng xã hội.
+Nếu lời nói của người dùng có lỗi nhận dạng giọng nói nhưng vẫn suy ra được ý định, hãy tự sửa và trả lời theo ý định đó.
+Không nhắc đến việc sửa lỗi nhận dạng giọng nói.
+Không xin lỗi hoặc yêu cầu người dùng nói lại nếu đã hiểu được ý chính.
+Không bịa đặt thông tin; nếu không biết thì nói không biết.
+Giữ giọng điệu ấm áp, thân thiện và tự nhiên như đang trò chuyện.
+/no_think"""
 
-PROMPT_TEMPLATE = "### Câu hỏi: {instruction}\n### Trả lời:"
-
-PHOGPT_MAX_TOKENS = 80
-PHOGPT_TEMPERATURE = 0.3
-PHOGPT_TOP_P = 0.9
-PHOGPT_REPEAT_PENALTY = 1.06
-PHOGPT_HISTORY_MAXLEN = 4
-PHOGPT_N_BATCH_MAX = 256
-PHOGPT_CONTEXT = 1024
-
-
-# PhoWhisper
-DEFAULT_STT_MODEL = "tiny"
-WHISPER_ALLOWED_MODELS = ("tiny", "base")
-
-PHOWHISPER_MODEL_IDS = {
-    "tiny": "vinai/PhoWhisper-tiny",
-    "base": "vinai/PhoWhisper-base",
-}
+LLM_MAX_TOKENS = 128
+LLM_TEMPERATURE = 0.6
+LLM_TOP_P = 0.95
+LLM_REPEAT_PENALTY = 1.0
+LLM_HISTORY_MAXLEN = 4
+LLM_N_BATCH_MAX = 256
+LLM_CONTEXT = 2048
 
 
-# Audio format
+# Native-streaming Vietnamese STT: Zipformer + sherpa-onnx
+STT_MODEL_REPO = "hynt/Zipformer-30M-RNNT-Streaming-6000h"
+
+STT_MODEL_DIR = Path(
+    os.environ.get(
+        "STT_MODEL_DIR",
+        REPO_ROOT / "models" / "zipformer-vi-streaming",
+    )
+).expanduser().resolve()
+
+STT_ENCODER_FILENAME = (
+    "encoder-epoch-31-avg-11-chunk-32-left-128.fp16.onnx"
+)
+STT_DECODER_FILENAME = (
+    "decoder-epoch-31-avg-11-chunk-32-left-128.fp16.onnx"
+)
+STT_JOINER_FILENAME = (
+    "joiner-epoch-31-avg-11-chunk-32-left-128.fp16.onnx"
+)
+
+# The repository renamed its token table from tokens.txt to config.json.
+STT_TOKENS_FILENAME = "config.json"
+STT_BPE_FILENAME = "bpe.model"
+
+STT_ENCODER_PATH = STT_MODEL_DIR / STT_ENCODER_FILENAME
+STT_DECODER_PATH = STT_MODEL_DIR / STT_DECODER_FILENAME
+STT_JOINER_PATH = STT_MODEL_DIR / STT_JOINER_FILENAME
+STT_TOKENS_PATH = STT_MODEL_DIR / STT_TOKENS_FILENAME
+STT_BPE_PATH = STT_MODEL_DIR / STT_BPE_FILENAME
+
+STT_SAMPLE_RATE = 16000
+STT_CHANNELS = 1
+
+STT_PROVIDER = os.environ.get("STT_PROVIDER", "cpu").strip() or "cpu"
+STT_NUM_THREADS = _int("STT_NUM_THREADS", 2, 1)
+STT_DECODING_METHOD = os.environ.get(
+    "STT_DECODING_METHOD",
+    "greedy_search",
+).strip() or "greedy_search"
+
+STT_MAX_ACTIVE_PATHS = _int("STT_MAX_ACTIVE_PATHS", 4, 1)
+STT_ENABLE_ENDPOINT_DETECTION = False
+STT_LOG_PARTIALS = os.environ.get(
+    "STT_LOG_PARTIALS",
+    "",
+).strip().lower() in {"1", "true", "yes"}
+
+
+# Audio formats
 KOKORO_SAMPLE_RATE = 24000
 TARGET_SAMPLE_RATE = 24000
 TARGET_CHANNELS = 1
 TARGET_SAMPLE_WIDTH = 2
-
-WHISPER_SAMPLE_RATE = 16000
-WHISPER_CHANNELS = 1
 
 AUDIO_CHUNK_SIZE = 1024
 DEFAULT_INPUT_WAV = "input.wav"

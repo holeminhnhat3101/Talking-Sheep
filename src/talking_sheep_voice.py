@@ -1,18 +1,18 @@
-"""Talking Sheep voice entry point.
+"""Entry point giọng nói Talking Sheep.
 
-Initializes all components once and runs a sequential conversation loop:
+Khởi tạo tất cả các thành phần một lần và chạy vòng lặp hội thoại tuần tự:
 
     microphone
-    → native-format negotiation
-    → optional multichannel/spatial processing
-    → 16 kHz mono Whisper input
-    → PhoGPT
-    → Kokoro TTS + optional bleat
-    → synchronous playback
-    → repeat
+    → thương lượng định dạng native
+    → xử lý đa kênh/không gian tùy chọn
+    → đầu vào Zipformer streaming 16 kHz mono
+    → LLM
+    → Kokoro TTS + tiếng cừu tùy chọn
+    → phát đồng bộ
+    → lặp lại
 
-Microphone failures use bounded retry delays so unplugged, unsupported, or
-temporarily busy devices do not create a rapid traceback loop.
+Lỗi microphone sử dụng độ trễ thử lại giới hạn để các thiết bị bị rút, không được hỗ trợ,
+hoặc tạm thời bận không tạo ra vòng lặp traceback nhanh.
 """
 
 from __future__ import annotations
@@ -49,7 +49,6 @@ try:
         DEFAULT_DEVICE,
         DEFAULT_LOG_LEVEL,
         DEFAULT_RUNTIME_DIR,
-        DEFAULT_STT_MODEL,
         DEFAULT_VOICE,
         DEFAULT_INPUT_WAV,
         MAX_RECORDING_DURATION,
@@ -79,7 +78,6 @@ except ImportError:
         DEFAULT_DEVICE,
         DEFAULT_LOG_LEVEL,
         DEFAULT_RUNTIME_DIR,
-        DEFAULT_STT_MODEL,
         DEFAULT_VOICE,
         DEFAULT_INPUT_WAV,
         MAX_RECORDING_DURATION,
@@ -98,7 +96,7 @@ DeviceSelector = Optional[Union[int, str]]
 
 
 def _parse_device_selector(value: str) -> DeviceSelector:
-    """Accept either a PortAudio index or a partial/exact device name."""
+    """Chấp nhận index PortAudio hoặc tên thiết bị một phần/chính xác."""
     text = value.strip()
     if not text:
         return None
@@ -148,7 +146,7 @@ def _parse_optional_positive_float(value: str) -> Optional[float]:
 
 
 def _parse_silence_threshold(value: str) -> Optional[float]:
-    """Use ``auto`` to enable per-device ambient-noise calibration."""
+    """Sử dụng ``auto`` để bật hiệu chuẩn tiếng ồn môi trường theo từng thiết bị."""
     text = value.strip().lower()
     if text in {"auto", "none", "unset"}:
         return None
@@ -207,63 +205,70 @@ def run_once(
     silence_threshold: Optional[float],
     silence_duration: float,
 ) -> bool:
-    """Run one complete microphone-to-speaker interaction.
+    """Chạy một tương tác microphone-to-speaker hoàn chỉnh.
 
-    Recording and playback are sequential and never overlap, preventing the
-    microphone from recording the sheep's own response.
+    Ghi âm và phát diễn ra tuần tự và không bao giờ chồng lên nhau, ngăn chặn
+    microphone ghi âm phản hồi của chính con cừu.
 
-    Returns ``True`` only when a complete response was played.
+    Trả về ``True`` chỉ khi một phản hồi hoàn chỉnh đã được phát.
     """
     try:
         from .voice_layer import create_spoken_response
     except ImportError:
         from src.voice_layer import create_spoken_response
 
-    input_wav = recorder.capture_utterance(
-        output_path=runtime_dir / DEFAULT_INPUT_WAV,
-        silence_threshold=silence_threshold,
-        silence_duration=silence_duration,
-    )
+    stt.start_utterance()
+
+    try:
+        input_wav, speech_end_time = recorder.capture_utterance_stream(
+            on_audio_chunk=stt.accept_audio,
+            output_path=runtime_dir / DEFAULT_INPUT_WAV,
+            silence_threshold=silence_threshold,
+            silence_duration=silence_duration,
+        )
+    except BaseException:
+        stt.abort_utterance()
+        raise
+
     if input_wav is None:
+        stt.abort_utterance()
         logger.debug("No usable speech was captured.")
         return False
 
-    spatial_metadata = getattr(recorder, "last_spatial_metadata", None)
-    if spatial_metadata is not None:
-        # Future microphone-array processors can return direction-of-arrival
-        # or beamforming metadata without changing the conversation pipeline.
-        logger.debug("Spatial microphone metadata: %r", spatial_metadata)
+    try:
+        transcript = stt.finish_utterance(speech_end_time).strip()
+        if not transcript:
+            logger.info("No usable Vietnamese transcription was produced.")
+            return False
 
-    transcript = stt.transcribe(input_wav).strip()
-    if not transcript:
-        logger.info("No usable Vietnamese transcription was produced.")
-        return False
+        logger.info("User transcript: %s", transcript)
 
-    logger.info("User transcript: %s", transcript)
+        response = llm.generate_response(transcript).strip()
+        if not response:
+            logger.warning("LLM produced no usable response.")
+            return False
 
-    response = llm.generate_response(transcript).strip()
-    if not response:
-        logger.warning("PhoGPT produced no usable response.")
-        return False
+        final_wav = create_spoken_response(
+            response_text=response,
+            tts=tts,
+            bleats_dir=bleats_dir,
+            runtime_dir=runtime_dir,
+        )
+        if final_wav is None:
+            logger.warning("TTS produced no final audio file.")
+            return False
 
-    final_wav = create_spoken_response(
-        response_text=response,
-        tts=tts,
-        bleats_dir=bleats_dir,
-        runtime_dir=runtime_dir,
-    )
-    if final_wav is None:
-        logger.warning("TTS produced no final audio file.")
-        return False
+        final_wav_path = Path(final_wav)
+        if not final_wav_path.is_file():
+            logger.warning("Final audio file does not exist: %s", final_wav_path)
+            return False
 
-    final_wav_path = Path(final_wav)
-    if not final_wav_path.is_file():
-        logger.warning("Final audio file does not exist: %s", final_wav_path)
-        return False
-
-    # Playback blocks until completion. Only then may the next recording begin.
-    player.play_blocking(str(final_wav_path))
-    return True
+        # Playback blocks until completion. Only then may the next recording begin.
+        player.play_blocking(str(final_wav_path))
+        return True
+    finally:
+        # Optional debug audio is written outside the speech-end critical path.
+        recorder.save_pending_debug_audio()
 
 
 def run_conversation_loop(
@@ -281,7 +286,7 @@ def run_conversation_loop(
     mic_retry_max_delay: float,
     cycle_retry_delay: float,
 ) -> None:
-    """Keep listening until interrupted without reloading persistent models."""
+    """Tiếp tục lắng nghe cho đến khi bị gián đoạn mà không tải lại model persistent."""
     try:
         from .audio_recorder import MicrophoneUnavailableError
     except ImportError:
@@ -351,38 +356,33 @@ def run_conversation_loop(
 
 
 def parse_args(argv: Optional[list[str]] = None) -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="Talking Sheep voice loop")
+    parser = argparse.ArgumentParser(description="Vòng lặp giọng nói Talking Sheep")
 
     parser.add_argument(
         "--voice",
         default=DEFAULT_VOICE,
-        help="Kokoro voice name",
+        help="Tên giọng Kokoro",
     )
     parser.add_argument(
         "--device",
         default=DEFAULT_DEVICE,
         choices=["cpu", "cuda"],
-        help="TTS inference device",
-    )
-    parser.add_argument(
-        "--stt-model",
-        default=DEFAULT_STT_MODEL,
-        help="Whisper model size",
+        help="Thiết bị suy luận TTS",
     )
     parser.add_argument(
         "--model-root",
         default=None,
-        help="PhoGPT model root directory",
+        help="Thư mục gốc model LLM",
     )
     parser.add_argument(
         "--bleats-dir",
         default=DEFAULT_BLEATS_DIR,
-        help="Path to bleat WAV files",
+        help="Đường dẫn đến file WAV tiếng cừu",
     )
     parser.add_argument(
         "--runtime-dir",
         default=DEFAULT_RUNTIME_DIR,
-        help="Directory for temporary WAV files",
+        help="Thư mục cho file WAV tạm thời",
     )
 
     parser.add_argument(
@@ -391,8 +391,8 @@ def parse_args(argv: Optional[list[str]] = None) -> argparse.Namespace:
         default=None,
         metavar="INDEX_OR_NAME",
         help=(
-            "Microphone PortAudio index or exact/partial device name. "
-            "When omitted, use AUDIO_INPUT_DEVICE or automatic detection."
+            "Index PortAudio microphone hoặc tên thiết bị chính xác/một phần. "
+            "Khi bỏ qua, sử dụng AUDIO_INPUT_DEVICE hoặc phát hiện tự động."
         ),
     )
     parser.add_argument(
@@ -401,7 +401,7 @@ def parse_args(argv: Optional[list[str]] = None) -> argparse.Namespace:
         default=AUDIO_CAPTURE_RATE,
         metavar="HZ_OR_AUTO",
         help=(
-            "Preferred native microphone rate. Use 'auto' to negotiate."
+            "Tốc độ microphone native ưu tiên. Sử dụng 'auto' để thương lượng."
         ),
     )
     parser.add_argument(
@@ -410,8 +410,8 @@ def parse_args(argv: Optional[list[str]] = None) -> argparse.Namespace:
         default=AUDIO_CAPTURE_CHANNELS,
         metavar="COUNT_OR_AUTO",
         help=(
-            "Preferred native channel count. Use 'auto' to preserve and "
-            "negotiate the microphone's supported channels."
+            "Số kênh native ưu tiên. Sử dụng 'auto' để giữ nguyên và "
+            "thương lượng các kênh được hỗ trợ của microphone."
         ),
     )
     parser.add_argument(
@@ -420,8 +420,8 @@ def parse_args(argv: Optional[list[str]] = None) -> argparse.Namespace:
         default=AUDIO_CHANNEL_MODE,
         metavar="MODE",
         help=(
-            "Channel processing: auto, mix, first, best-energy, "
-            "beamformed, or channel:N."
+            "Xử lý kênh: auto, mix, first, best-energy, "
+            "beamformed, hoặc channel:N."
         ),
     )
     parser.add_argument(
@@ -430,8 +430,8 @@ def parse_args(argv: Optional[list[str]] = None) -> argparse.Namespace:
         default=SILENCE_THRESHOLD,
         metavar="VALUE_OR_AUTO",
         help=(
-            "Fixed RMS speech threshold, or 'auto' for per-device "
-            "ambient-noise calibration."
+            "Ngưỡng giọng nói RMS cố định, hoặc 'auto' để hiệu chuẩn "
+            "tiếng ồn môi trường theo từng thiết bị."
         ),
     )
     parser.add_argument(
@@ -440,53 +440,53 @@ def parse_args(argv: Optional[list[str]] = None) -> argparse.Namespace:
         default=AUDIO_MAX_WAIT_FOR_SPEECH,
         metavar="SECONDS_OR_NONE",
         help=(
-            "Maximum time to wait for speech before returning to the loop. "
-            "Use 'none' for no timeout."
+            "Thời gian tối đa chờ giọng nói trước khi quay lại vòng lặp. "
+            "Sử dụng 'none' để không có timeout."
         ),
     )
     parser.add_argument(
         "--auto-calibrate",
         action=argparse.BooleanOptionalAction,
         default=bool(AUDIO_AUTO_CALIBRATE),
-        help="Enable or disable ambient-noise calibration.",
+        help="Bật hoặc tắt hiệu chuẩn tiếng ồn môi trường.",
     )
     parser.add_argument(
         "--save-native-audio",
         action=argparse.BooleanOptionalAction,
         default=bool(AUDIO_SAVE_NATIVE_DEBUG),
         help=(
-            "Save the untouched native multichannel recording beside "
-            "runtime/input.wav for debugging microphone arrays."
+            "Lưu bản ghi native đa kênh chưa chạm bên cạnh "
+            "runtime/input.wav để debug microphone array."
         ),
     )
 
     parser.add_argument(
         "--list-mics",
         action="store_true",
-        help="List detected microphones and exit",
+        help="Liệt kê các microphone được phát hiện và thoát",
     )
     parser.add_argument(
         "--mic-retry-initial-delay",
         type=float,
         default=MIC_RETRY_INITIAL_DELAY,
-        help="Initial microphone retry delay in seconds",
+        help="Độ trễ thử lại microphone ban đầu tính bằng giây",
     )
     parser.add_argument(
         "--mic-retry-max-delay",
         type=float,
         default=MIC_RETRY_MAX_DELAY,
-        help="Maximum microphone retry delay in seconds",
+        help="Độ trễ thử lại microphone tối đa tính bằng giây",
     )
     parser.add_argument(
         "--cycle-retry-delay",
         type=float,
         default=CYCLE_RETRY_DELAY,
-        help="Delay after unexpected non-microphone cycle errors",
+        help="Độ trễ sau các lỗi vòng lặp không phải microphone bất ngờ",
     )
     parser.add_argument(
         "--log-level",
         default=DEFAULT_LOG_LEVEL,
-        help="Logging level",
+        help="Cấp độ logging",
     )
 
     args = parser.parse_args(argv)
@@ -520,13 +520,13 @@ def main(argv: Optional[list[str]] = None) -> None:
     try:
         from .audio_player import AudioPlayer
         from .audio_recorder import AudioRecorder
-        from .chat_phogpt import PhoGPTChat
+        from .chat_llm import LLMChat
         from .vietnamese_stt import VietnameseSTT
         from .voice_layer import KokoroTTS
     except ImportError:
         from src.audio_player import AudioPlayer
         from src.audio_recorder import AudioRecorder
-        from src.chat_phogpt import PhoGPTChat
+        from src.chat_llm import LLMChat
         from src.vietnamese_stt import VietnameseSTT
         from src.voice_layer import KokoroTTS
 
@@ -584,14 +584,14 @@ def main(argv: Optional[list[str]] = None) -> None:
             "auto" if args.silence_threshold is None else args.silence_threshold,
         )
 
-        # Persistent Whisper model.
-        stt = VietnameseSTT(model_size=args.stt_model)
-        logger.info("STT ready (model=%s).", args.stt_model)
+        # Persistent Zipformer OnlineRecognizer; one stream per utterance.
+        stt = VietnameseSTT()
+        logger.info("STT ready (streaming Zipformer).")
 
-        # Persistent PhoGPT model.
+        # Persistent LLM model.
         model_root = Path(args.model_root) if args.model_root else REPO_ROOT
-        llm = PhoGPTChat(model_root=model_root)
-        logger.info("PhoGPTChat ready.")
+        llm = LLMChat(model_root=model_root)
+        logger.info("LLMChat ready.")
 
         # Persistent Kokoro engine.
         vendored_src = REPO_ROOT / "Kokoro-Vietnamese" / "src"
