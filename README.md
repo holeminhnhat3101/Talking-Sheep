@@ -22,11 +22,17 @@ Talking Sheep là một trợ lý giọng nói tiếng Việt chạy offline tr�
 
 ## Cài đặt
 
-Clone repository:
+Clone repository cùng submodule Kokoro-Vietnamese:
 
 ```bash
-git clone <repository-url>
+git clone --recurse-submodules https://github.com/holeminhnhat3101/Talking-Sheep.git
 cd Talking-Sheep
+```
+
+Nếu đã clone repository mà chưa tải submodule:
+
+```bash
+git submodule update --init --recursive
 ```
 
 Cho phép chạy script khởi động:
@@ -140,6 +146,8 @@ Giọng mặc định:
 mai_linh
 ```
 
+Kokoro-Vietnamese được giữ dưới dạng Git submodule để các thay đổi riêng của Talking Sheep có thể được quản lý trong một repository độc lập.
+
 ## Cấu hình
 
 Cấu hình mặc định nằm trong:
@@ -178,14 +186,16 @@ Talking-Sheep/
 │   ├── talking_sheep_voice.py
 │   ├── vietnamese_stt.py
 │   └── voice_layer.py
-├── Kokoro-Vietnamese/
+├── Kokoro-Vietnamese/        # Git submodule
 ├── assets/
 │   └── bleats/
 ├── models/
 ├── runtime/
+├── docs/
 ├── requirements.txt
 ├── requirements-rpi.txt
 ├── run-chat.sh
+├── THIRD_PARTY_LICENSES.md
 └── README.md
 ```
 
@@ -222,12 +232,17 @@ Nếu cài dependency hoặc tải model thất bại, chạy lại:
 ./run-chat.sh
 ```
 
+Nếu thư mục `Kokoro-Vietnamese` trống sau khi clone:
+
+```bash
+git submodule update --init --recursive
+```
+
 ## Tài liệu
 
 Các tài liệu chi tiết về kiến trúc, cấu hình, triển khai và xử lý lỗi nên được đặt trong thư mục `docs/` thay vì mở rộng README này.
 
-
-```
+```text
 docs/
 ├── architecture.md
 ├── configuration.md
@@ -236,4 +251,12 @@ docs/
 ```
 
 ## Giấy phép
-Dự án sử dụng nhiều thành phần và model có giấy phép riêng. Hãy kiểm tra giấy phép của Talking Sheep, Qwen, Zipformer, sherpa-onnx, Kokoro Vietnamese và các file audio đi kèm trước khi phân phối hoặc sử dụng thương mại.
+
+Mã nguồn gốc của Talking Sheep được phát hành theo Apache License 2.0.
+
+Các thư viện, model weights và voicepack bên thứ ba vẫn tuân theo giấy phép riêng của từng thành phần. Apache License 2.0 của dự án không thay thế hoặc ghi đè các giấy phép đó.
+
+Xem:
+
+- `LICENSE`
+- `THIRD_PARTY_LICENSES.md`
