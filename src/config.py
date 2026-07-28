@@ -58,6 +58,24 @@ def _device(name: str) -> int | None:
         ) from exc
 
 
+# CPU Core detection
+CPU_COUNT = os.cpu_count() or 4
+
+# Thread Ratios & Optimization
+# Priority 1: Qwen (LLM) - Full cores (100%)
+LLM_NUM_THREADS = _int("LLM_NUM_THREADS", CPU_COUNT, 1)
+
+# Priority 2: Kokoro (TTS) & OMP Global - ~75% cores
+TTS_INTRA_THREADS = _int("TTS_INTRA_THREADS", max(1, int(CPU_COUNT * 0.75)), 1)
+TTS_INTER_THREADS = _int("TTS_INTER_THREADS", 1, 1)
+
+OMP_NUM_THREADS_VAL = _int("OMP_NUM_THREADS", max(1, int(CPU_COUNT * 0.75)), 1)
+OPENBLAS_NUM_THREADS_VAL = _int("OPENBLAS_NUM_THREADS", 1, 1)
+
+# Priority 3: Zipformer STT - Fixed low core count
+STT_NUM_THREADS = _int("STT_NUM_THREADS", 2, 1)
+
+
 # Local LLM
 LLM_MODEL_REPO = "ggml-org/Qwen3-1.7B-GGUF"
 LLM_MODEL_FILENAME = "Qwen3-1.7B-Q4_K_M.gguf"
@@ -70,15 +88,16 @@ Không nhắc đến việc sửa lỗi nhận dạng giọng nói.
 Không xin lỗi hoặc yêu cầu người dùng nói lại nếu đã hiểu được ý chính.
 Không bịa đặt thông tin; nếu không biết thì nói không biết.
 Giữ giọng điệu ấm áp, thân thiện và tự nhiên như đang trò chuyện.
+Viết tối đa 3 câu.
 /no_think"""
 
-LLM_MAX_TOKENS = 128
+LLM_MAX_TOKENS = 64
 LLM_TEMPERATURE = 0.6
 LLM_TOP_P = 0.95
 LLM_REPEAT_PENALTY = 1.0
 LLM_HISTORY_MAXLEN = 4
 LLM_N_BATCH_MAX = 256
-LLM_CONTEXT = 2048
+LLM_CONTEXT = 1024
 
 
 # Native-streaming Vietnamese STT: Zipformer + sherpa-onnx
@@ -115,7 +134,6 @@ STT_SAMPLE_RATE = 16000
 STT_CHANNELS = 1
 
 STT_PROVIDER = os.environ.get("STT_PROVIDER", "cpu").strip() or "cpu"
-STT_NUM_THREADS = _int("STT_NUM_THREADS", 2, 1)
 STT_DECODING_METHOD = os.environ.get(
     "STT_DECODING_METHOD",
     "greedy_search",
@@ -141,7 +159,7 @@ DEFAULT_FINAL_WAV = "final.wav"
 
 
 # Kokoro voice
-SPEAKING_SPEED = 1.0
+SPEAKING_SPEED = 1.6
 DEFAULT_VOICE = "mai_linh"
 DEFAULT_DEVICE = "cpu"
 

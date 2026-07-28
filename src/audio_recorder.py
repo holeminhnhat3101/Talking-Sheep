@@ -157,6 +157,68 @@ class AudioRecorder:
             )
         return devices
 
+    @staticmethod
+    def _is_virtual_device(device: dict) -> bool:
+        """Check if a device name suggests it is a virtual/pseudo ALSA device."""
+        name = str(device["name"]).casefold()
+        virtual_names = (
+            "default",
+            "sysdefault",
+            "pulse",
+            "pipewire",
+            "jack",
+            "dmix",
+            "dsnoop",
+            "surround",
+            "front",
+            "rear",
+            "center_lfe",
+            "iec958",
+            "spdif",
+            "modem",
+            "phoneline",
+        )
+        return any(token in name for token in virtual_names)
+
+    @staticmethod
+    def _is_respeaker(device: dict) -> bool:
+        """Check if a device name suggests it is a Seeed Studio ReSpeaker."""
+        name = str(device["name"]).casefold()
+        return "respeaker" in name or "seeed" in name
+
+    @classmethod
+    def _device_score(cls, device: dict) -> int:
+        """Calculate a quality score for a device to aid auto-selection."""
+        name = str(device["name"]).casefold()
+        channels = int(device.get("channels", 0) or 0)
+
+        if channels < 1:
+            return -10000
+
+        # Penalize virtual devices heavily
+        if cls._is_virtual_device(device):
+            return -1000
+
+        score = 0
+
+        # Highly prefer ReSpeaker
+        if cls._is_respeaker(device):
+            score += 1000
+
+        # Prefer hardware devices (hw: or plughw:)
+        if "(hw:" in name or "(plughw:" in name:
+            score += 200
+
+        # Prefer USB devices
+        if "usb" in name:
+            score += 100
+
+        # Penalize suspiciously high channel counts for non-Respeaker
+        if channels > 32 and not cls._is_respeaker(device):
+            score -= 500
+
+        return score
+
     def _select_device(self) -> dict:
         devices = self.list_input_devices()
         if not devices:
@@ -181,6 +243,22 @@ class AudioRecorder:
                 f"Microphone {selector!r} is unavailable"
             )
 
+        # Automatic selection logic
+        physical_devices = [d for d in devices if not self._is_virtual_device(d)]
+
+        if physical_devices:
+            best_device = max(physical_devices, key=self._device_score)
+            # Guardrail: even if it's the "best" physical device, if it has 128 channels,
+            # it's likely a misidentified virtual device.
+            if int(best_device["channels"]) > 32:
+                raise MicrophoneUnavailableError(
+                    f"Auto-selected microphone appears to be a virtual ALSA device: "
+                    f"{best_device['name']} ({best_device['channels']} channels). "
+                    "Use --input-device to select a physical microphone."
+                )
+            return best_device
+
+        # Fallback to PortAudio default
         try:
             default_index = int(self.audio.get_default_input_device_info()["index"])
             match = next(
@@ -188,17 +266,22 @@ class AudioRecorder:
                 None,
             )
             if match:
+                logger.warning(
+                    "No physical microphone candidate found; "
+                    "falling back to PortAudio default: %s",
+                    match["name"],
+                )
                 return match
         except Exception:
             pass
 
-        return next(
-            (d for d in devices if "usb" in d["name"].casefold()),
-            devices[0],
-        )
+        return devices[0]
 
     def _candidate_configs(self, device: dict) -> list[dict]:
         max_channels = int(device["channels"])
+        is_respeaker = self._is_respeaker(device)
+
+        # Standard negotiation rates and channels
         rates = self._unique(
             [
                 *([self.capture_rate] if self.capture_rate else []),
@@ -218,7 +301,7 @@ class AudioRecorder:
             ]
         )
 
-        configs = [
+        generic_configs = [
             {
                 "device_index": int(device["index"]),
                 "rate": rate,
@@ -229,6 +312,34 @@ class AudioRecorder:
             for channels in channel_counts
             for audio_format in (pyaudio.paInt16, pyaudio.paFloat32)
             if channels <= max_channels
+        ]
+
+        respeaker_configs = []
+        if is_respeaker:
+            # ReSpeaker v2.0/v2.0.1 firmware profiles
+            # 6-channel firmware provides processed audio on channel 0 at 16kHz
+            if max_channels >= 6:
+                respeaker_configs.append(
+                    {
+                        "device_index": int(device["index"]),
+                        "rate": 16000,
+                        "channels": 6,
+                        "format": pyaudio.paInt16,
+                    }
+                )
+            # 1-channel firmware fallback
+            respeaker_configs.append(
+                {
+                    "device_index": int(device["index"]),
+                    "rate": 16000,
+                    "channels": 1,
+                    "format": pyaudio.paInt16,
+                }
+            )
+
+        # Prioritize ReSpeaker configs, then others
+        configs = respeaker_configs + [
+            c for c in generic_configs if c not in respeaker_configs
         ]
 
         if (
@@ -303,10 +414,33 @@ class AudioRecorder:
         stream = None
         try:
             device = self._select_device()
+            logger.info(
+                "Selected microphone [%d] %s (host=%s, max_channels=%d, respeaker=%s)",
+                device["index"],
+                device["name"],
+                device["host_api"],
+                device["channels"],
+                self._is_respeaker(device),
+            )
             stream, config = self._open_stream(device)
             rate = int(config["rate"])
             channels = int(config["channels"])
             audio_format = int(config["format"])
+
+            logger.info(
+                "Using microphone [%d] %s at %d Hz, %d channel(s), mode=%s",
+                device["index"],
+                device["name"],
+                rate,
+                channels,
+                (
+                    "channel:0"
+                    if self._is_respeaker(device)
+                    and channels >= 6
+                    and self.channel_mode == "auto"
+                    else self.channel_mode
+                ),
+            )
             chunk_seconds = self.chunk_size / rate
 
             pre_roll: deque[bytes] = deque(
@@ -376,7 +510,8 @@ class AudioRecorder:
                         continue
 
                     selected_channel = self._choose_channel(
-                        self._decode(pre_roll[-1], audio_format, channels)
+                        self._decode(pre_roll[-1], audio_format, channels),
+                        is_respeaker=self._is_respeaker(device),
                     )
                     self._reset_stream_resampler(rate)
 
@@ -482,11 +617,16 @@ class AudioRecorder:
         if debug_pcm_chunks is not None:
             debug_pcm_chunks.append(self._to_int16(converted).tobytes())
 
-    def _choose_channel(self, samples: np.ndarray) -> int:
+    def _choose_channel(self, samples: np.ndarray, *, is_respeaker: bool = False) -> int:
         if samples.shape[1] == 1 or self.channel_mode == "first":
             return 0
         if self.channel_mode == "mix":
             return -1
+
+        # ReSpeaker 6-channel processed audio is on channel 0
+        if is_respeaker and samples.shape[1] >= 6 and self.channel_mode == "auto":
+            return 0
+
         if self.channel_mode.startswith("channel:"):
             index = int(self.channel_mode.split(":", 1)[1])
             if not 0 <= index < samples.shape[1]:

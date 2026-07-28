@@ -4,6 +4,9 @@ set -Eeuo pipefail
 ROOT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 cd "$ROOT_DIR"
 
+# Use official PyPI index by default
+export PIP_INDEX_URL="${PIP_INDEX_URL:-https://pypi.org/simple}"
+
 log() { printf '[%s] %s\n' "$1" "$2"; }
 fail() { log ERROR "$1"; exit 1; }
 

@@ -15,6 +15,7 @@ try:
         LLM_MAX_TOKENS,
         LLM_MODEL_FILENAME,
         LLM_MODEL_REPO,
+        LLM_NUM_THREADS,
         LLM_N_BATCH_MAX,
         LLM_REPEAT_PENALTY,
         LLM_SYSTEM_PROMPT,
@@ -28,6 +29,7 @@ except ImportError:
         LLM_MAX_TOKENS,
         LLM_MODEL_FILENAME,
         LLM_MODEL_REPO,
+        LLM_NUM_THREADS,
         LLM_N_BATCH_MAX,
         LLM_REPEAT_PENALTY,
         LLM_SYSTEM_PROMPT,
@@ -135,13 +137,14 @@ class LLMChat:
         self.model_path = ensure_model(model_root)
 
         n_ctx = int(os.getenv("LLM_CONTEXT", str(LLM_CONTEXT)))
-        n_threads = int(os.getenv("LLM_THREADS", str(os.cpu_count() or 4)))
+        n_threads = LLM_NUM_THREADS
 
         self.llm = llama_class(
             model_path=str(self.model_path),
             n_ctx=n_ctx,
             n_threads=n_threads,
             n_batch=min(LLM_N_BATCH_MAX, n_ctx),
+            n_threads_batch=n_threads,
             verbose=False,
         )
 

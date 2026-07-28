@@ -22,6 +22,13 @@ import importlib
 import logging
 import sys
 import time
+
+# Pre-setup thread environment before other heavy imports
+try:
+    from . import env_setup
+except ImportError:
+    import env_setup
+
 from pathlib import Path
 from typing import Any, Optional, Union
 
@@ -58,6 +65,8 @@ try:
         PRE_ROLL_DURATION,
         SILENCE_DURATION,
         SILENCE_THRESHOLD,
+        TTS_INTRA_THREADS,
+        TTS_INTER_THREADS,
     )
 except ImportError:
     from src.config import (
@@ -87,6 +96,8 @@ except ImportError:
         PRE_ROLL_DURATION,
         SILENCE_DURATION,
         SILENCE_THRESHOLD,
+        TTS_INTRA_THREADS,
+        TTS_INTER_THREADS,
     )
 
 
@@ -601,7 +612,33 @@ def main(argv: Optional[list[str]] = None) -> None:
         kokoro_class = importlib.import_module(
             "kokoro_vietnamese"
         ).KokoroVietnamese
+
+        # If it's an ONNX session, try to apply thread limits
         tts_engine = kokoro_class(device=args.device, voice=args.voice)
+
+        try:
+            if hasattr(tts_engine, "session"):
+                import onnxruntime as ort
+                sess_options = ort.SessionOptions()
+                sess_options.intra_op_num_threads = TTS_INTRA_THREADS
+                sess_options.inter_op_num_threads = TTS_INTER_THREADS
+
+                # We have to re-create the session if it was already created by constructor
+                # This is a bit hacky but works for the current KokoroVietnameseONNX implementation
+                if hasattr(tts_engine, "onnx_path"):
+                    from kokoro_vietnamese.onnx_cli import choose_providers
+                    tts_engine.session = ort.InferenceSession(
+                        str(tts_engine.onnx_path),
+                        sess_options=sess_options,
+                        providers=choose_providers(args.device)
+                    )
+                    logger.info(
+                        "Applied ONNX thread limits: intra=%d, inter=%d",
+                        TTS_INTRA_THREADS, TTS_INTER_THREADS
+                    )
+        except Exception as e:
+            logger.debug("Could not apply granular ONNX thread limits: %s", e)
+
         tts = KokoroTTS(tts_engine)
         logger.info(
             "Kokoro TTS ready (voice=%s, device=%s).",

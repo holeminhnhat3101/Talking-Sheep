@@ -57,6 +57,8 @@ Khởi động Talking Sheep:
 ./run-chat.sh
 ```
 
+Talking Sheep tự động phát hiện và ưu tiên thiết bị Seeed Studio ReSpeaker Mic Array. Khi sử dụng firmware 6 kênh, hệ thống tự động chọn kênh 0 (processed audio) ở tần số 16 kHz để có chất lượng nhận dạng tốt nhất.
+
 Liệt kê microphone được phát hiện:
 
 ```bash
