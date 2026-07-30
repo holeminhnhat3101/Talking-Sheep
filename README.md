@@ -99,16 +99,48 @@ Microphone
 → VAD và pre-roll
 → Audio mono float32 16 kHz
 → Zipformer streaming STT
-→ Qwen3 local LLM
-→ Kokoro Vietnamese TTS
-→ Tiếng cừu tùy chọn
-→ AudioPlayer
+→ Qwen3 local LLM (streaming)
+→ Tách câu theo thời gian thực
+→ Kokoro Vietnamese TTS (theo câu)
+→ Tiếng cừu tùy chọn giữa các câu
+→ AudioPlayer (phát theo dòng)
 → Loa
 ```
 
-STT recognizer, LLM và TTS engine được load một lần và tái sử dụng qua nhiều lượt hội thoại.
+### Pipeline Streaming
 
-Thu âm và phát audio diễn ra tuần tự. Microphone không ghi âm trong lúc trợ lý đang nói.
+Talking Sheep sử dụng pipeline streaming để giảm độ trễ phản hồi:
+
+1. **LLM Streaming**: LLM tạo phản hồi từng phần, lọc bỏ thinking tags và code blocks
+2. **Sentence Assembly**: Các câu được tách tại ranh giới . ! ? nhưng giữ nguyên số thập phân (ví dụ: 3.5)
+3. **Per-Sentence TTS**: Mỗi câu được tổng hợp giọng nói ngay khi hoàn tất
+4. **Immediate Playback**: Câu đầu tiên được phát ngay khi tổng hợp xong, trong khi các câu sau vẫn đang được xử lý
+5. **Interstitial Bleats**: Tiếng cừu ngẫu nhiên (theo `BLEAT_PROBABILITY`) được chèn giữa các câu, không trước câu đầu tiên hay sau câu cuối cùng
+
+### Tradeoff One-Producer
+
+- **TTS blocks LLM**: TTS synthesis tạm dừng LLM generation (single producer thread)
+- **Playback không blocks**: Phát audio không chặn producer thread
+- **Lợi ích**: Độ trễ thấp hơn, phản hồi nhanh hơn cho câu đầu tiên
+- **Hạn chế**: Không hỗ trợ barge-in (ngắt lời khi đang phát)
+
+### Microphone Selection
+
+- **One device**: Tự động chọn nếu chỉ có một microphone vật lý
+- **Multiple devices**: Hiển thị menu tương tác với phím mũi tên trong SSH terminal
+- **Escape**: Cho phép hủy chọn microphone trước khi khởi tạo model
+- **Non-interactive**: Chế độ service không chờ input (tự động chọn hoặc fallback)
+- **--list-mics**: Liệt kê microphone mà không load STT/LLM/TTS
+
+### Recording & Playback
+
+- Thu âm và phát audio diễn ra tuần tự
+- Microphone không ghi âm trong lúc trợ lý đang nói
+- Recording chỉ resumes sau khi playback hoàn tất
+- Streaming path không tạo file `runtime/final.wav` (khác với batch pipeline cũ)
+- AudioPlayer giữ persistent PyAudio stream, không reopen giữa các segment
+
+STT recognizer, LLM và TTS engine được load một lần và tái sử dụng qua nhiều lượt hội thoại.
 
 ## Model
 
@@ -167,7 +199,7 @@ STT_NUM_THREADS=2
 AUDIO_INPUT_DEVICE=1
 AUDIO_OUTPUT_DEVICE=0
 SILENCE_THRESHOLD=250
-BLEAT_PROBABILITY=1.0
+BLEAT_PROBABILITY=1.0  # Xác suất chèn tiếng cừu giữa các câu (0.0-1.0)
 ```
 
 Ví dụ:
@@ -251,6 +283,16 @@ docs/
 ├── deployment.md
 └── troubleshooting.md
 ```
+
+## Tính năng Đã Hoãn
+
+Các tính năng sau chưa được triển khai trong phiên bản hiện tại:
+
+- **Barge-in**: Không hỗ trợ ngắt lời khi trợ lý đang phát
+- **Echo cancellation**: Không hỗ trợ hoạt động đồng thời microphone và loa
+- **Concurrent LLM/TTS**: Chỉ có một producer thread (TTS blocks LLM iteration)
+- **Forced sentence flushing**: Không ép buộc tách câu theo giới hạn token hoặc dấu phẩy
+- **Dynamic Bluetooth switching**: Không hỗ trợ chuyển đổi sink Bluetooth trong khi chạy
 
 ## Giấy phép
 
