@@ -32,6 +32,21 @@ except ImportError:
 from pathlib import Path
 from typing import Any, Optional, Union
 
+try:
+    from .microphone_menu import select_microphone_interactive
+except ImportError:
+    from src.microphone_menu import select_microphone_interactive
+
+try:
+    from .voice_layer import load_bleat_segments
+except ImportError:
+    from src.voice_layer import load_bleat_segments
+
+try:
+    from .streaming_response import stream_response_to_player
+except ImportError:
+    from src.streaming_response import stream_response_to_player
+
 # Ensure ``src`` imports work whether this file is executed directly or imported.
 REPO_ROOT = Path(__file__).resolve().parent.parent
 if str(REPO_ROOT) not in sys.path:
@@ -204,6 +219,32 @@ def _parse_channel_mode(value: str) -> str:
     )
 
 
+def resolve_startup_input_selector(
+    recorder,
+    configured_selector,
+    *,
+    interactive: bool,
+    menu_selector=select_microphone_interactive,
+) -> tuple[object | None, bool]:
+    if configured_selector is not None:
+        return configured_selector, False
+
+    devices = recorder.list_selectable_input_devices()
+    if not devices:
+        return None, False
+
+    if len(devices) == 1:
+        return int(devices[0]["index"]), False
+
+    if interactive:
+        selected = menu_selector(devices)
+        if selected is None:
+            return None, True
+        return selected, False
+
+    return None, False
+
+
 def run_once(
     recorder: Any,
     stt: Any,
@@ -211,7 +252,7 @@ def run_once(
     tts: Any,
     player: Any,
     runtime_dir: Path,
-    bleats_dir: Path,
+    bleat_segments: tuple[AudioSegment, ...],
     *,
     silence_threshold: Optional[float],
     silence_duration: float,
@@ -223,11 +264,6 @@ def run_once(
 
     Trả về ``True`` chỉ khi một phản hồi hoàn chỉnh đã được phát.
     """
-    try:
-        from .voice_layer import create_spoken_response
-    except ImportError:
-        from src.voice_layer import create_spoken_response
-
     stt.start_utterance()
 
     try:
@@ -254,29 +290,15 @@ def run_once(
 
         logger.info("User transcript: %s", transcript)
 
-        response = llm.generate_response(transcript).strip()
-        if not response:
-            logger.warning("LLM produced no usable response.")
-            return False
-
-        final_wav = create_spoken_response(
-            response_text=response,
+        completed = stream_response_to_player(
+            prompt=transcript,
+            llm=llm,
             tts=tts,
-            bleats_dir=bleats_dir,
-            runtime_dir=runtime_dir,
+            player=player,
+            bleat_segments=bleat_segments,
+            speech_end_time=speech_end_time,
         )
-        if final_wav is None:
-            logger.warning("TTS produced no final audio file.")
-            return False
-
-        final_wav_path = Path(final_wav)
-        if not final_wav_path.is_file():
-            logger.warning("Final audio file does not exist: %s", final_wav_path)
-            return False
-
-        # Playback blocks until completion. Only then may the next recording begin.
-        player.play_blocking(str(final_wav_path))
-        return True
+        return completed
     finally:
         # Optional debug audio is written outside the speech-end critical path.
         recorder.save_pending_debug_audio()
@@ -289,7 +311,7 @@ def run_conversation_loop(
     tts: Any,
     player: Any,
     runtime_dir: Path,
-    bleats_dir: Path,
+    bleat_segments: tuple[AudioSegment, ...],
     *,
     silence_threshold: Optional[float],
     silence_duration: float,
@@ -319,7 +341,7 @@ def run_conversation_loop(
                     tts,
                     player,
                     runtime_dir,
-                    bleats_dir,
+                    bleat_segments,
                     silence_threshold=silence_threshold,
                     silence_duration=silence_duration,
                 )
@@ -584,6 +606,25 @@ def main(argv: Optional[list[str]] = None) -> None:
                 )
             return
 
+        selected_selector, cancelled = resolve_startup_input_selector(
+            recorder,
+            input_selector,
+            interactive=sys.stdin.isatty() and sys.stdout.isatty(),
+        )
+        if cancelled:
+            print("Microphone selection cancelled.")
+            return
+
+        if selected_selector is not None:
+            recorder.device_selector = selected_selector
+            input_selector = selected_selector
+            logger.info("Using microphone selector: %r", input_selector)
+        elif input_selector is None:
+            logger.info(
+                "No microphone was explicitly selected; using automatic "
+                "physical-device scoring."
+            )
+
         logger.info(
             "AudioRecorder ready "
             "(selector=%r, capture_rate=%s, capture_channels=%s, "
@@ -646,6 +687,9 @@ def main(argv: Optional[list[str]] = None) -> None:
             args.device,
         )
 
+        bleat_segments = load_bleat_segments(bleats_dir)
+        logger.info("Loaded %d bleat audio segment(s).", len(bleat_segments))
+
         # Persistent audio player.
         player = AudioPlayer(device_index=AUDIO_OUTPUT_DEVICE)
         logger.info(
@@ -665,7 +709,7 @@ def main(argv: Optional[list[str]] = None) -> None:
             tts,
             player,
             runtime_dir,
-            bleats_dir,
+            bleat_segments,
             silence_threshold=args.silence_threshold,
             silence_duration=SILENCE_DURATION,
             mic_retry_initial_delay=args.mic_retry_initial_delay,
