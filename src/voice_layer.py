@@ -61,6 +61,58 @@ logger = logging.getLogger(__name__)
 # Chia câu
 # ---------------------------------------------------------------------------
 
+class StreamingSentenceAssembler:
+    """Stateful sentence assembler that aggregates stream chunks and yields
+    fully formed sentences (delimited by . ! ?), preserving decimal values (e.g., 3.5).
+    """
+    def __init__(self):
+        self.buffer = ""
+
+    def feed(self, chunk: str) -> list[str]:
+        sentences = []
+        for c in chunk:
+            has_pending_dot = (len(self.buffer) >= 2 and self.buffer[-1] == "." and self.buffer[-2].isdigit())
+            if has_pending_dot:
+                if c.isdigit():
+                    self.buffer += c
+                else:
+                    cleaned = " ".join(self.buffer.split()).strip()
+                    if cleaned:
+                        sentences.append(cleaned)
+                    self.buffer = ""
+                    if c in ("!", "?"):
+                        sentences.append(c)
+                    elif c == ".":
+                        sentences.append(".")
+                    else:
+                        self.buffer = c
+            else:
+                if c in ("!", "?"):
+                    self.buffer += c
+                    cleaned = " ".join(self.buffer.split()).strip()
+                    if cleaned:
+                        sentences.append(cleaned)
+                    self.buffer = ""
+                elif c == ".":
+                    if len(self.buffer) >= 1 and self.buffer[-1].isdigit():
+                        self.buffer += c
+                    else:
+                        self.buffer += c
+                        cleaned = " ".join(self.buffer.split()).strip()
+                        if cleaned:
+                            sentences.append(cleaned)
+                        self.buffer = ""
+                else:
+                    self.buffer += c
+        return sentences
+
+    def finish(self) -> str | None:
+        tail = self.buffer
+        self.buffer = ""
+        cleaned = " ".join(tail.split()).strip()
+        return cleaned if cleaned else None
+
+
 def split_sentences(text: str) -> list[str]:
     """Tách văn bản thành câu tại ranh giới . ! ?
 
@@ -68,18 +120,13 @@ def split_sentences(text: str) -> list[str]:
     Số thập phân như 3.5 bên trong câu (không có khoảng trắng theo sau)
     được giữ nguyên như một đoạn.
     """
-    text = " ".join(text.split())  # collapse whitespace
-    if not text:
-        return []
+    assembler = StreamingSentenceAssembler()
+    sentences = assembler.feed(text)
+    tail = assembler.finish()
+    if tail:
+        sentences.append(tail)
+    return [s for s in sentences if s]
 
-    sentences = re.split(r"(?<=[.!?])\s+", text)
-
-    return [s.strip() for s in sentences if s.strip()]
-
-
-# ---------------------------------------------------------------------------
-# Khám phá và chọn tiếng cừu
-# ---------------------------------------------------------------------------
 
 def discover_bleats(bleats_dir: Path) -> list[Path]:
     """Quét *bleats_dir* tìm file .wav. Trả về danh sách rỗng nếu thiếu."""
@@ -96,8 +143,54 @@ def discover_bleats(bleats_dir: Path) -> list[Path]:
     return wavs
 
 
-def choose_bleat(bleats: list[Path]) -> Optional[Path]:
-    return random.choice(bleats) if bleats else None
+def load_bleat_segments(bleats_dir: Path) -> tuple[AudioSegment, ...]:
+    """Quét và tải tất cả các file WAV tiếng cừu hợp lệ dưới dạng AudioSegment,
+    được bình thường hóa, áp dụng fade và tăng âm.
+    """
+    wav_paths = discover_bleats(bleats_dir)
+    segments = []
+    for path in wav_paths:
+        try:
+            segment = AudioSegment.from_wav(str(path))
+            segment = normalize_segment(segment)
+            segment = segment.fade_in(BLEAT_FADE_IN_MS).fade_out(BLEAT_FADE_OUT_MS)
+            segment = segment + BLEAT_VOLUME_DB
+            segments.append(segment)
+        except Exception:
+            logger.warning("Failed to load bleat %s, skipping.", path, exc_info=True)
+    return tuple(segments)
+
+
+def build_inter_sentence_segment(
+    bleats: tuple[AudioSegment, ...],
+    *,
+    probability: float = BLEAT_PROBABILITY,
+    rng=random,
+) -> AudioSegment:
+    """Tạo một đoạn âm thanh xen giữa các câu.
+
+    Có xác suất chèn tiếng cừu ngẫu nhiên nếu danh sách bleats không rỗng.
+    Nếu không chèn, trả về khoảng lặng dài SILENCE_MS.
+    """
+    if bleats and rng.random() < probability:
+        bleat = rng.choice(bleats)
+        before = AudioSegment.silent(
+            duration=PAUSE_BEFORE_BLEAT_MS,
+            frame_rate=TARGET_SAMPLE_RATE,
+        )
+        after = AudioSegment.silent(
+            duration=PAUSE_AFTER_BLEAT_MS,
+            frame_rate=TARGET_SAMPLE_RATE,
+        )
+        before = normalize_segment(before)
+        after = normalize_segment(after)
+        return before + bleat + after
+    else:
+        silence = AudioSegment.silent(
+            duration=SILENCE_MS,
+            frame_rate=TARGET_SAMPLE_RATE,
+        )
+        return normalize_segment(silence)
 
 
 # ---------------------------------------------------------------------------
@@ -122,7 +215,6 @@ def normalize_segment(
 
 def numpy_to_segment(audio: np.ndarray, sample_rate: int) -> AudioSegment:
     """Chuyển đổi mảng numpy float32 sang AudioSegment pydub (16-bit mono)."""
-    # Clip and scale float32 [-1, 1] to int16
     audio = np.asarray(audio, dtype=np.float32).reshape(-1)
     audio = np.clip(audio, -1.0, 1.0)
     pcm = (audio * 32767).astype(np.int16)
@@ -163,92 +255,35 @@ class KokoroTTS:
             return None
         return audio_array, phonemes
 
-def synthesize_sentences(tts, sentences: list[str]) -> list[AudioSegment]:
-    """Gọi Kokoro TTS cho từng câu. Trả về danh sách AudioSegments.
 
-    ``tts`` phải có method ``synthesize(text) -> (np.ndarray, str)``
-    (API KokoroVietnamese).
+def synthesize_sentence(tts, sentence: str) -> Optional[AudioSegment]:
+    """Tổng hợp một câu đơn lẻ thành AudioSegment (mono, 16-bit, 24 kHz).
+
+    Trả về None nếu tổng hợp trống hoặc thất bại.
     """
+    audio_result = tts.synthesize(sentence)
+    if audio_result is None:
+        return None
+    audio_array, _phonemes = audio_result
+    if len(audio_array) == 0:
+        return None
+
+    segment = numpy_to_segment(audio_array, KOKORO_SAMPLE_RATE)
+    return normalize_segment(segment)
+
+
+def synthesize_sentences(tts, sentences: list[str]) -> list[AudioSegment]:
+    """Gọi Kokoro TTS cho từng câu. Trả về danh sách AudioSegments."""
     segments: list[AudioSegment] = []
 
     for i, sentence in enumerate(sentences):
         logger.info("Synthesizing sentence %d/%d: %.60s...", i + 1, len(sentences), sentence)
-
-        audio_result = tts.synthesize(sentence)
-        if audio_result is None:
-            raise RuntimeError("TTS adapter returned no in-memory audio for composition")
-        audio_array, _phonemes = audio_result
-
-        if len(audio_array) == 0:
-            logger.warning("TTS returned empty audio for sentence %d, skipping.", i + 1)
+        segment = synthesize_sentence(tts, sentence)
+        if segment is None:
             continue
-
-        segment = numpy_to_segment(audio_array, KOKORO_SAMPLE_RATE)
-        segment = normalize_segment(segment)
         segments.append(segment)
 
     return segments
-
-
-# ---------------------------------------------------------------------------
-# Soạn nhạc
-# ---------------------------------------------------------------------------
-
-def compose_with_bleat(
-    sentence_segments: list[AudioSegment],
-    bleat_path: Optional[Path],
-    bleat_after_index: int = 0,
-) -> AudioSegment:
-    """Kết hợp AudioSegments câu với tiếng cừu đơn tùy chọn.
-
-    Tối đa một tiếng cừu được chèn. Tiếng cừu đi sau
-    ``sentence_segments[bleat_after_index]`` (mặc định: sau câu đầu tiên).
-    Nếu có ít hơn 2 câu, không có tiếng cừu được chèn.
-    """
-    if not sentence_segments:
-        return AudioSegment.empty()
-
-    pause = AudioSegment.silent(duration=SILENCE_MS, frame_rate=TARGET_SAMPLE_RATE)
-    result = AudioSegment.empty()
-
-    insert_bleat = (
-        bleat_path is not None
-        and bleat_path.is_file()
-        and len(sentence_segments) >= 2
-    )
-
-    bleat_segment = None
-    if insert_bleat:
-        try:
-            bleat_segment = AudioSegment.from_wav(str(bleat_path))
-            bleat_segment = normalize_segment(bleat_segment)
-            bleat_segment = bleat_segment.fade_in(BLEAT_FADE_IN_MS).fade_out(BLEAT_FADE_OUT_MS)
-            bleat_segment = bleat_segment + BLEAT_VOLUME_DB
-        except Exception:
-            logger.warning("Failed to load bleat %s, continuing without.", bleat_path, exc_info=True)
-            bleat_segment = None
-
-    for i, seg in enumerate(sentence_segments):
-        if i > 0 and not (
-            bleat_segment is not None
-            and i - 1 == bleat_after_index
-        ):
-            result += pause
-
-        result += seg
-
-        if bleat_segment is not None and i == bleat_after_index:
-            before = AudioSegment.silent(
-                duration=PAUSE_BEFORE_BLEAT_MS,
-                frame_rate=TARGET_SAMPLE_RATE,
-            )
-            after = AudioSegment.silent(
-                duration=PAUSE_AFTER_BLEAT_MS,
-                frame_rate=TARGET_SAMPLE_RATE,
-            )
-            result += before + bleat_segment + after
-
-    return result
 
 
 # ---------------------------------------------------------------------------
@@ -263,13 +298,6 @@ def create_spoken_response(
 ) -> Path:
     """Tạo phản ứng WAV có thể nói với tiếng cừu tùy chọn.
 
-    Các bước:
-      1. Tách phản ứng thành câu.
-      2. Tổng hợp từng câu qua Kokoro TTS.
-      3. Khám phá tiếng cừu có sẵn, chọn một.
-      4. Soạn audio cuối cùng với tiếng cừu tùy chọn sau câu đầu tiên.
-      5. Xuất sang runtime_dir/{DEFAULT_FINAL_WAV} và trả về đường dẫn của nó.
-
     Raises ValueError nếu *response_text* không tạo ra câu nào có thể sử dụng.
     """
     runtime_dir.mkdir(parents=True, exist_ok=True)
@@ -280,23 +308,19 @@ def create_spoken_response(
 
     logger.info("Split into %d sentence(s).", len(sentences))
 
-    # Synthesize
     sentence_segments = synthesize_sentences(tts, sentences)
     if not sentence_segments:
         raise ValueError("TTS produced no audio for any sentence.")
 
-    # Bleat
-    bleats = discover_bleats(bleats_dir)
-    bleat_path = choose_bleat(bleats) if len(sentences) >= 2 and random.random() < BLEAT_PROBABILITY else None
+    bleats = load_bleat_segments(bleats_dir)
 
-    # Compose
-    final_audio = compose_with_bleat(
-        sentence_segments=sentence_segments,
-        bleat_path=bleat_path,
-        bleat_after_index=0,
-    )
+    final_audio = AudioSegment.empty()
+    for i, seg in enumerate(sentence_segments):
+        if i > 0:
+            interstitial = build_inter_sentence_segment(bleats)
+            final_audio += interstitial
+        final_audio += seg
 
-    # Export
     final_path = runtime_dir / DEFAULT_FINAL_WAV
     final_audio.export(str(final_path), format="wav")
     logger.info("Exported final audio to %s (%d ms).", final_path, len(final_audio))
