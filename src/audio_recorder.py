@@ -157,6 +157,13 @@ class AudioRecorder:
             )
         return devices
 
+    def list_selectable_input_devices(self) -> list[dict]:
+        return [
+            device
+            for device in self.list_input_devices()
+            if not self._is_virtual_device(device)
+        ]
+
     @staticmethod
     def _is_virtual_device(device: dict) -> bool:
         """Check if a device name suggests it is a virtual/pseudo ALSA device."""
