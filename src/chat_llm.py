@@ -2,11 +2,13 @@
 
 from collections import deque
 from pathlib import Path
+from typing import Iterator
 import importlib
 import os
 import re
 import shutil
 import threading
+
 
 try:
     from .config import (
@@ -129,6 +131,91 @@ def build_messages(
     return messages
 
 
+class _StreamingResponseFilter:
+    def __init__(self):
+        self.inside_think = False
+        self.inside_code = False
+        self.buffer = ""
+
+    def feed(self, chunk: str) -> str:
+        output = []
+        for char in chunk:
+            candidate = self.buffer + char
+            if self.inside_think:
+                target = "</think>"
+                longest_prefix = ""
+                for i in range(len(candidate)):
+                    suffix = candidate[i:]
+                    if target.startswith(suffix):
+                        longest_prefix = suffix
+                        break
+                self.buffer = longest_prefix
+                if self.buffer == target:
+                    self.inside_think = False
+                    self.buffer = ""
+            elif self.inside_code:
+                target = "```"
+                longest_prefix = ""
+                for i in range(len(candidate)):
+                    suffix = candidate[i:]
+                    if target.startswith(suffix):
+                        longest_prefix = suffix
+                        break
+                self.buffer = longest_prefix
+                if self.buffer == target:
+                    self.inside_code = False
+                    self.buffer = ""
+            else:
+                targets = ["<think>", "```"]
+                longest_prefix = ""
+                for i in range(len(candidate)):
+                    suffix = candidate[i:]
+                    if any(t.startswith(suffix) for t in targets):
+                        longest_prefix = suffix
+                        break
+                
+                safe_len = len(candidate) - len(longest_prefix)
+                if safe_len > 0:
+                    output.append(candidate[:safe_len])
+                    self.buffer = longest_prefix
+                else:
+                    self.buffer = candidate
+                
+                if self.buffer == "<think>":
+                    self.inside_think = True
+                    self.buffer = ""
+                elif self.buffer == "```":
+                    self.inside_code = True
+                    self.buffer = ""
+                    
+        return "".join(output)
+
+    def finish(self) -> str:
+        if not self.inside_think and not self.inside_code:
+            res = self.buffer
+            self.buffer = ""
+            return res
+        self.buffer = ""
+        return ""
+
+
+class _SpacingNormalizer:
+    def __init__(self):
+        self.last_was_space = False
+
+    def normalize(self, text: str) -> str:
+        res = []
+        for char in text:
+            if char in (" ", "\t"):
+                if not self.last_was_space:
+                    res.append(" ")
+                    self.last_was_space = True
+            else:
+                res.append(char)
+                self.last_was_space = False
+        return "".join(res)
+
+
 class LLMChat:
     """LLM local có thể tái sử dụng với lịch sử hội thoại giới hạn."""
 
@@ -152,31 +239,55 @@ class LLMChat:
             maxlen=LLM_HISTORY_MAXLEN
         )
 
-    def _generate_response_internal(self, user_prompt: str) -> str:
-        output = self.llm.create_chat_completion(
-            messages=build_messages(self.history, user_prompt),
-            max_tokens=LLM_MAX_TOKENS,
-            temperature=LLM_TEMPERATURE,
-            top_p=LLM_TOP_P,
-            repeat_penalty=LLM_REPEAT_PENALTY,
-        )
-
-        reply = output["choices"][0]["message"]["content"]
-
-        reply = re.sub(r"</think>.*?</think>\s*", "", reply, flags=re.DOTALL) # Remove thinking tags
-        reply = re.sub(r"```.*?```", "", reply, flags=re.DOTALL).strip()
-
-        if reply:
-            self.history.append((user_prompt, reply))
-
-        return reply
-
-    def generate_response(self, user_prompt: str) -> str:
+    def generate_response_chunks(self, user_prompt: str) -> Iterator[str]:
         _thinking_event.set()
+        stream = None
+        filter_obj = _StreamingResponseFilter()
+        normalizer = _SpacingNormalizer()
+        complete_reply = []
         try:
-            return self._generate_response_internal(user_prompt)
+            stream = self.llm.create_chat_completion(
+                messages=build_messages(self.history, user_prompt),
+                max_tokens=LLM_MAX_TOKENS,
+                temperature=LLM_TEMPERATURE,
+                top_p=LLM_TOP_P,
+                repeat_penalty=LLM_REPEAT_PENALTY,
+                stream=True,
+            )
+            for chunk in stream:
+                choices = chunk.get("choices")
+                if not choices:
+                    continue
+                delta = choices[0].get("delta", {})
+                content = delta.get("content")
+                if content:
+                    filtered = filter_obj.feed(content)
+                    if filtered:
+                        normalized = normalizer.normalize(filtered)
+                        if normalized:
+                            complete_reply.append(normalized)
+                            yield normalized
+            
+            filtered_end = filter_obj.finish()
+            if filtered_end:
+                normalized_end = normalizer.normalize(filtered_end)
+                if normalized_end:
+                    complete_reply.append(normalized_end)
+                    yield normalized_end
+                    
+            reply_str = "".join(complete_reply).strip()
+            if reply_str:
+                self.history.append((user_prompt, reply_str))
         finally:
             _thinking_event.clear()
+            if stream is not None and hasattr(stream, "close"):
+                try:
+                    stream.close()
+                except Exception:
+                    pass
+
+    def generate_response(self, user_prompt: str) -> str:
+        return "".join(self.generate_response_chunks(user_prompt)).strip()
 
 
 def main() -> None:
