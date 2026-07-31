@@ -18,11 +18,9 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from src.voice_layer import (
     split_sentences,
     discover_bleats,
-    choose_bleat,
     numpy_to_segment,
     normalize_segment,
     synthesize_sentences,
-    compose_with_bleat,
     create_spoken_response,
     KOKORO_SAMPLE_RATE,
     TARGET_SAMPLE_RATE,
@@ -160,28 +158,6 @@ def test_discover_bleats_ignores_non_wav():
 
 
 # ===========================================================================
-# choose_bleat
-# ===========================================================================
-
-def test_choose_bleat_empty_list():
-    """Không có tiếng cừu nào có sẵn trả về None."""
-    assert choose_bleat([]) is None
-
-
-def test_choose_bleat_single():
-    """Một tiếng cừu luôn được trả về."""
-    p = Path("assets/bleats/happy.wav")
-    assert choose_bleat([p]) == p
-
-
-def test_choose_bleat_multiple():
-    """Nhiều tiếng cừu — trả về một trong số chúng."""
-    paths = [Path(f"bleats/{i}.wav") for i in range(5)]
-    result = choose_bleat(paths)
-    assert result in paths
-
-
-# ===========================================================================
 # numpy_to_segment
 # ===========================================================================
 
@@ -202,66 +178,6 @@ def test_numpy_to_segment_clipping():
     seg = numpy_to_segment(audio, 24000)
     # Should not raise — clipping handles out-of-range values
     assert seg.sample_width == 2
-
-
-# ===========================================================================
-# compose_with_bleat
-# ===========================================================================
-
-def test_compose_empty():
-    """Danh sách câu rỗng tạo ra audio rỗng."""
-    result = compose_with_bleat([], None)
-    assert len(result) == 0
-
-
-def test_compose_single_sentence_no_bleat():
-    """Một câu — không có tiếng cừu được chèn ngay cả khi có sẵn."""
-    seg = numpy_to_segment(np.zeros(2400, dtype=np.float32), 24000)
-
-    with tempfile.TemporaryDirectory() as tmp:
-        bleat = _make_wav(Path(tmp) / "bleat.wav")
-        result = compose_with_bleat([seg], bleat)
-
-        # Result should be just the sentence, no bleat
-        assert abs(len(result) - 100) <= 2  # ~100ms sentence only
-
-
-def test_compose_two_sentences_with_bleat():
-    """Hai câu — tiếng cừu được chèn sau câu đầu tiên."""
-    seg1 = numpy_to_segment(np.zeros(2400, dtype=np.float32), 24000)  # 100ms
-    seg2 = numpy_to_segment(np.zeros(2400, dtype=np.float32), 24000)  # 100ms
-
-    with tempfile.TemporaryDirectory() as tmp:
-        bleat_path = _make_wav(Path(tmp) / "bleat.wav", duration_ms=200)
-        result = compose_with_bleat([seg1, seg2], bleat_path, bleat_after_index=0)
-
-        # seg1(100) + pause(100) + bleat(200) + pause(100) + pause(100) + seg2(100)
-        # Total > 100 + 100 = 200ms (without bleat)
-        assert len(result) > 200
-
-
-def test_compose_max_one_bleat():
-    """Chỉ một tiếng cừu được chèn ngay cả với nhiều câu."""
-    segs = [numpy_to_segment(np.zeros(2400, dtype=np.float32), 24000) for _ in range(5)]
-
-    with tempfile.TemporaryDirectory() as tmp:
-        bleat_path = _make_wav(Path(tmp) / "bleat.wav", duration_ms=200)
-        result = compose_with_bleat(segs, bleat_path, bleat_after_index=0)
-
-        # Compose again without bleat to compare
-        result_no_bleat = compose_with_bleat(segs, None)
-
-        # With bleat should be longer by roughly: bleat(200) + 2*pause(100) = 400ms
-        diff_ms = len(result) - len(result_no_bleat)
-        assert 300 < diff_ms < 500  # one bleat + pauses
-
-
-def test_compose_no_bleat_file():
-    """Thiếu file tiếng cừu gây ra suy thoát êm đẹp."""
-    seg = numpy_to_segment(np.zeros(2400, dtype=np.float32), 24000)
-    result = compose_with_bleat([seg, seg], Path("/nonexistent/bleat.wav"))
-    # Should still produce audio — just two sentences with a pause
-    assert len(result) > 0
 
 
 # ===========================================================================
