@@ -92,10 +92,13 @@ def ensure_model(model_root: Path | None = None) -> Path:
         f"from {LLM_MODEL_REPO}..."
     )
 
+    hf_cache_dir = model_path.parent / ".hf-cache"
+    hf_cache_dir.mkdir(parents=True, exist_ok=True)
+
     downloaded = hf_hub_download(
         repo_id=LLM_MODEL_REPO,
         filename=LLM_MODEL_FILENAME,
-        local_dir=str(model_path.parent / ".hf-cache"),
+        local_dir=str(hf_cache_dir),
     )
 
     shutil.copyfile(downloaded, part_path)
@@ -201,7 +204,7 @@ class _StreamingResponseFilter:
 
 class _SpacingNormalizer:
     def __init__(self):
-        self.last_was_space = False
+        self.last_was_space = True
 
     def normalize(self, text: str) -> str:
         res = []

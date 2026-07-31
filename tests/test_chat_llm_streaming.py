@@ -26,9 +26,14 @@ def test_streaming_filter_unfinished():
 
 def test_spacing_normalizer():
     norm = _SpacingNormalizer()
-    assert norm.normalize("hello  ") == "hello "
-    assert norm.normalize("   world") == " world"
-    assert norm.normalize("\nnew  line") == "\nnew line"
+    # no whitespace at the beginning of the stream
+    assert norm.normalize("   hello  ") == "hello "
+    # leading whitespace in the next chunk is skipped because previous chunk ended with space
+    assert norm.normalize("   world") == "world"
+    # punctuation-adjacent chunks (previous chunk ended in 'd', not space, so leading space is kept)
+    assert norm.normalize("   !") == " !"
+    # trailing whitespace
+    assert norm.normalize(" end   ") == " end "
 
 @patch("src.chat_llm.ensure_model")
 @patch("src.chat_llm.load_runtime_dependencies")

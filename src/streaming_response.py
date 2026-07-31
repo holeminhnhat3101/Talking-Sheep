@@ -11,6 +11,7 @@ from src.voice_layer import (
     StreamingSentenceAssembler,
     build_inter_sentence_segment,
     synthesize_sentence,
+    normalize_segment,
 )
 
 logger = logging.getLogger(__name__)
@@ -73,30 +74,26 @@ AudioQueueItem: TypeAlias = Union[
 # Queue helpers
 # ---------------------------------------------------------------------------
 
-def _queue_put_with_timeout(
+def _queue_put_until_stopped(
     q: queue.Queue,
     item,
     stop_event: threading.Event,
-    timeout: float = 1.0,
+    timeout: float = 0.1,
 ) -> bool:
-    """Queue an item unless cancellation occurs or the queue remains full."""
-    if stop_event.is_set():
-        return False
+    """Queue an item with retries until stopped.
+    
+    Required control messages (_SentenceEnd, _SentenceFailure, _AudioEnd, _AudioFailure)
+    must never be silently discarded. This preserves bounded backpressure while
+    preventing loss of critical control messages.
+    """
+    while not stop_event.is_set():
+        try:
+            q.put(item, timeout=timeout)
+            return True
+        except queue.Full:
+            continue
 
-    try:
-        q.put(item, timeout=timeout)
-        return True
-    except queue.Full:
-        pass
-
-    if stop_event.is_set():
-        return False
-
-    try:
-        q.put(item, timeout=0.1)
-        return True
-    except queue.Full:
-        return False
+    return False
 
 
 def _queue_get_with_timeout(
@@ -202,7 +199,7 @@ def _llm_worker(
                 logger.info("Assistant sentence: %s", sentence)
                 metrics.set_first_sentence_boundary(time.monotonic())
 
-                if not _queue_put_with_timeout(
+                if not _queue_put_until_stopped(
                     sentence_queue,
                     _SentenceMessage(sentence),
                     stop_event,
@@ -220,21 +217,21 @@ def _llm_worker(
             logger.info("Assistant sentence: %s", tail)
             metrics.set_first_sentence_boundary(time.monotonic())
 
-            if not _queue_put_with_timeout(
+            if not _queue_put_until_stopped(
                 sentence_queue,
                 _SentenceMessage(tail),
                 stop_event,
             ):
                 return
 
-        _queue_put_with_timeout(
+        _queue_put_until_stopped(
             sentence_queue,
             _SentenceEnd(),
             stop_event,
         )
 
     except BaseException as error:
-        _queue_put_with_timeout(
+        _queue_put_until_stopped(
             sentence_queue,
             _SentenceFailure(error),
             stop_event,
@@ -243,7 +240,7 @@ def _llm_worker(
     finally:
         if generator is not None:
             close = getattr(generator, "close", None)
-            if close is not None:
+            if callable(close):
                 try:
                     close()
                 except Exception:
@@ -272,10 +269,10 @@ def _tts_worker(
                     stop_event,
                 )
             except queue.Empty:
-                return
+                continue
 
             if isinstance(item, _SentenceFailure):
-                _queue_put_with_timeout(
+                _queue_put_until_stopped(
                     audio_queue,
                     _AudioFailure(item.error),
                     stop_event,
@@ -283,7 +280,7 @@ def _tts_worker(
                 return
 
             if isinstance(item, _SentenceEnd):
-                _queue_put_with_timeout(
+                _queue_put_until_stopped(
                     audio_queue,
                     _AudioEnd(),
                     stop_event,
@@ -299,19 +296,25 @@ def _tts_worker(
             if segment is None:
                 continue
 
+            # Normalize to target format (48kHz, stereo, 16-bit)
+            segment = normalize_segment(segment)
+            
             metrics.set_first_synthesized_segment(time.monotonic())
 
             if not first_sentence:
                 interstitial = build_inter_sentence_segment(bleat_segments)
+                if interstitial is not None:
+                    # Normalize bleat to target format
+                    interstitial = normalize_segment(interstitial)
 
-                if not _queue_put_with_timeout(
-                    audio_queue,
-                    _AudioInterstitial(interstitial),
-                    stop_event,
-                ):
-                    return
+                    if not _queue_put_until_stopped(
+                        audio_queue,
+                        _AudioInterstitial(interstitial),
+                        stop_event,
+                    ):
+                        return
 
-            if not _queue_put_with_timeout(
+            if not _queue_put_until_stopped(
                 audio_queue,
                 _AudioSpeech(segment),
                 stop_event,
@@ -321,7 +324,7 @@ def _tts_worker(
             first_sentence = False
 
     except BaseException as error:
-        _queue_put_with_timeout(
+        _queue_put_until_stopped(
             audio_queue,
             _AudioFailure(error),
             stop_event,
@@ -380,6 +383,9 @@ def stream_response_to_player(
     tts_thread.start()
 
     try:
+        # Start streaming session with persistent stream
+        player.start_streaming_session()
+        
         while True:
             try:
                 item: AudioQueueItem = _queue_get_with_timeout(
@@ -388,12 +394,16 @@ def stream_response_to_player(
                     timeout=2.0,
                 )
             except queue.Empty:
-                if not llm_thread.is_alive() or not tts_thread.is_alive():
+                if tts_thread.is_alive():
+                    continue
+
+                # TTS worker exited - check for final message
+                try:
+                    item = audio_queue.get_nowait()
+                except queue.Empty:
                     raise RuntimeError(
-                        "Pipeline worker terminated without sending "
-                        "an end-of-stream message."
+                        "TTS worker exited without an audio terminal message."
                     )
-                continue
 
             if isinstance(item, _AudioFailure):
                 raise item.error
@@ -403,12 +413,12 @@ def stream_response_to_player(
 
             if isinstance(item, _AudioSpeech):
                 metrics.set_first_playback(time.monotonic())
-                player.play_segment_blocking(item.segment)
+                player.write_pcm_blocking(item.segment.raw_data)
                 played_any = True
                 continue
 
             if isinstance(item, _AudioInterstitial):
-                player.play_segment_blocking(item.segment)
+                player.write_pcm_blocking(item.segment.raw_data)
                 continue
 
             raise TypeError(
@@ -420,9 +430,12 @@ def stream_response_to_player(
         raise
 
     finally:
+        # End streaming session and drain PCM
+        player.end_streaming_session()
+        
         stop_event.set()
 
-        llm_thread.join(timeout=2.0)
+        llm_thread.join(timeout=5.0)
         tts_thread.join(timeout=2.0)
 
         alive_workers = [
@@ -430,9 +443,6 @@ def stream_response_to_player(
             for thread in (llm_thread, tts_thread)
             if thread.is_alive()
         ]
-
-        _drain_queue(sentence_queue)
-        _drain_queue(audio_queue)
 
         if alive_workers:
             termination_error = RuntimeError(
@@ -444,6 +454,10 @@ def stream_response_to_player(
                 raise termination_error
 
             logger.error("%s", termination_error)
+
+        # Drain queues only after workers have exited
+        _drain_queue(sentence_queue)
+        _drain_queue(audio_queue)
 
         if played_any:
             (

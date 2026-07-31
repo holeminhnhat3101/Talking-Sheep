@@ -9,27 +9,37 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from src import chat_llm
 
 
-def test_thinking_state_success():
+def test_thinking_state_success(monkeypatch):
     llm = chat_llm.LLMChat.__new__(chat_llm.LLMChat)
+    from collections import deque
+    llm.history = deque(maxlen=chat_llm.LLM_HISTORY_MAXLEN)
 
-    def generate(_prompt):
-        assert chat_llm.is_thinking() is True
-        return "Xin chào."
-
-    llm._generate_response_internal = generate
+    class FakeLLM:
+        def create_chat_completion(self, *args, **kwargs):
+            assert chat_llm.is_thinking() is True
+            yield {"choices": [{"delta": {"content": "Xin "}}]}
+            yield {"choices": [{"delta": {"content": "chào."}}]}
+            
+    llm.llm = FakeLLM()
+    
     assert chat_llm.is_thinking() is False
     assert llm.generate_response("Chào bạn") == "Xin chào."
     assert chat_llm.is_thinking() is False
 
 
-def test_thinking_state_failure():
+def test_thinking_state_failure(monkeypatch):
     llm = chat_llm.LLMChat.__new__(chat_llm.LLMChat)
+    from collections import deque
+    llm.history = deque(maxlen=chat_llm.LLM_HISTORY_MAXLEN)
 
-    def fail(_prompt):
-        assert chat_llm.is_thinking() is True
-        raise RuntimeError("generation failed")
+    class FakeLLM:
+        def create_chat_completion(self, *args, **kwargs):
+            assert chat_llm.is_thinking() is True
+            raise RuntimeError("generation failed")
+            yield {}
 
-    llm._generate_response_internal = fail
+    llm.llm = FakeLLM()
+    
     with pytest.raises(RuntimeError, match="generation failed"):
         llm.generate_response("Xin chào")
     assert chat_llm.is_thinking() is False

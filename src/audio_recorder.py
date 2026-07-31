@@ -565,7 +565,7 @@ class AudioRecorder:
                 ):
                     break
 
-            speech_end_time = time.perf_counter()
+            speech_end_time = time.monotonic()
             speech_duration = speech_chunks * chunk_seconds
             if speech_duration < self.min_speech_duration:
                 logger.info("Speech was too short: %.2f seconds", speech_duration)

@@ -119,7 +119,7 @@ class VietnameseSTT:
                 self.recognizer.decode_stream(self.stream)
 
             transcript = " ".join(self._result_text().split())
-            latency_ms = (time.perf_counter() - speech_end_time) * 1000
+            latency_ms = (time.monotonic() - speech_end_time) * 1000
             logger.info("VAD end to transcript: %.1f ms", latency_ms)
             return transcript
         finally:

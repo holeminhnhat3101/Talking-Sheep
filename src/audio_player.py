@@ -1,4 +1,5 @@
 import pyaudio
+import time
 import wave
 from pathlib import Path
 from pydub import AudioSegment
@@ -32,6 +33,7 @@ class AudioPlayer:
         self._closed = False
         self._stream = None
         self._stream_format = None
+        self._in_streaming_session = False
 
     def _ensure_stream(self, sample_width: int, channels: int, frame_rate: int):
         fmt_key = (sample_width, channels, frame_rate, self.device_index)
@@ -66,6 +68,62 @@ class AudioPlayer:
             self._stream = None
             self._stream_format = None
 
+    def start_streaming_session(self) -> None:
+        """Start a streaming session with one persistent output stream."""
+        if self._closed:
+            raise RuntimeError("AudioPlayer is closed")
+        
+        if self._in_streaming_session:
+            return  # Already in a session
+        
+        # Open stream with target format (48kHz, stereo, 16-bit)
+        self._ensure_stream(
+            TARGET_SAMPLE_WIDTH, TARGET_CHANNELS, TARGET_SAMPLE_RATE
+        )
+        self._in_streaming_session = True
+
+    def end_streaming_session(self) -> None:
+        """End the streaming session and drain queued PCM."""
+        if not self._in_streaming_session:
+            return
+        
+        if self._stream is not None:
+            try:
+                self._stream.stop_stream()
+                # Explicitly drain remaining buffered data for Bluetooth/PipeWire
+                # Use a small delay to allow Bluetooth stack to process
+                time.sleep(0.05)  # 50ms drain time for Bluetooth
+                self._stream.close()
+            except Exception:
+                pass
+            self._stream = None
+            self._stream_format = None
+        
+        self._in_streaming_session = False
+
+    def write_pcm_blocking(self, pcm_data: bytes) -> None:
+        """Write raw PCM data to the streaming session.
+        
+        Requires start_streaming_session() to be called first.
+        """
+        if self._closed:
+            raise RuntimeError("AudioPlayer is closed")
+        
+        if not self._in_streaming_session:
+            raise RuntimeError("Not in streaming session. Call start_streaming_session() first.")
+        
+        if self._stream is None:
+            raise RuntimeError("No active stream in streaming session")
+        
+        frame_size = TARGET_CHANNELS * TARGET_SAMPLE_WIDTH
+        chunk_bytes = AUDIO_CHUNK_SIZE * frame_size
+        offset = 0
+        
+        while offset < len(pcm_data):
+            chunk = pcm_data[offset : offset + chunk_bytes]
+            self._stream.write(chunk)
+            offset += chunk_bytes
+
     def play_segment_blocking(self, segment: AudioSegment) -> None:
         if self._closed:
             raise RuntimeError("AudioPlayer is closed")
@@ -76,7 +134,7 @@ class AudioPlayer:
             or segment.frame_rate != TARGET_SAMPLE_RATE
         ):
             raise ValueError(
-                f"AudioSegment format must be mono, 16-bit, {TARGET_SAMPLE_RATE} Hz"
+                f"AudioSegment format must be stereo, 16-bit, {TARGET_SAMPLE_RATE} Hz"
             )
 
         stream = self._ensure_stream(
@@ -113,7 +171,7 @@ class AudioPlayer:
                 or frame_rate != TARGET_SAMPLE_RATE
             ):
                 raise ValueError(
-                    f"{audio_path} must be mono, 16-bit, "
+                    f"{audio_path} must be stereo, 16-bit, "
                     f"{TARGET_SAMPLE_RATE} Hz"
                 )
 
@@ -130,6 +188,7 @@ class AudioPlayer:
             return
 
         self._closed = True
+        self._in_streaming_session = False
         try:
             self._close_stream()
         finally:

@@ -166,13 +166,15 @@ def build_inter_sentence_segment(
     *,
     probability: float = BLEAT_PROBABILITY,
     rng=random,
-) -> AudioSegment:
+) -> AudioSegment | None:
     """Tạo một đoạn âm thanh xen giữa các câu.
 
     Có xác suất chèn tiếng cừu ngẫu nhiên nếu danh sách bleats không rỗng.
-    Nếu không chèn, trả về khoảng lặng dài SILENCE_MS.
     """
-    if bleats and rng.random() < probability:
+    if not bleats:
+        return None
+    
+    if rng.random() < probability:
         bleat = rng.choice(bleats)
         before = AudioSegment.silent(
             duration=PAUSE_BEFORE_BLEAT_MS,
@@ -185,12 +187,8 @@ def build_inter_sentence_segment(
         before = normalize_segment(before)
         after = normalize_segment(after)
         return before + bleat + after
-    else:
-        silence = AudioSegment.silent(
-            duration=SILENCE_MS,
-            frame_rate=TARGET_SAMPLE_RATE,
-        )
-        return normalize_segment(silence)
+    
+    return None
 
 
 # ---------------------------------------------------------------------------
@@ -318,7 +316,8 @@ def create_spoken_response(
     for i, seg in enumerate(sentence_segments):
         if i > 0:
             interstitial = build_inter_sentence_segment(bleats)
-            final_audio += interstitial
+            if interstitial is not None:
+                final_audio += interstitial
         final_audio += seg
 
     final_path = runtime_dir / DEFAULT_FINAL_WAV
