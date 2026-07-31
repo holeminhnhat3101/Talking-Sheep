@@ -1,6 +1,7 @@
 import pyaudio
 import wave
 from pathlib import Path
+from pydub import AudioSegment
 
 try:
     from .config import (
