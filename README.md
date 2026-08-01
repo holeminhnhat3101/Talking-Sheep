@@ -213,24 +213,40 @@ STT_NUM_THREADS=4 BLEAT_PROBABILITY=0 ./run-chat.sh
 ```text
 Talking-Sheep/
 ├── src/
-│   ├── audio_player.py
-│   ├── audio_recorder.py
-│   ├── chat_llm.py
-│   ├── config.py
-│   ├── talking_sheep_voice.py
-│   ├── vietnamese_stt.py
-│   └── voice_layer.py
-├── Kokoro-Vietnamese/        # Git submodule
+│   ├── audio_player.py          # Phát audio với persistent stream
+│   ├── audio_recorder.py        # Thu âm với VAD, pre-roll, resampling
+│   ├── chat_llm.py              # Local LLM integration (Qwen3)
+│   ├── config.py                # Cấu hình trung tâm với environment variables
+│   ├── env_setup.py             # Thiết lập thread environment
+│   ├── microphone_menu.py      # Menu tương tác chọn microphone
+│   ├── streaming_response.py   # Pipeline streaming với queue management
+│   ├── talking_sheep_voice.py   # Entry point chính
+│   ├── vietnamese_stt.py       # Zipformer STT với sherpa-onnx
+│   └── voice_layer.py          # TTS, sentence assembly, audio processing
+├── tests/                       # Test suite
+│   ├── test_audio_player.py
+│   ├── test_audio_recorder_devices.py
+│   ├── test_chat_llm.py
+│   ├── test_chat_llm_streaming.py
+│   ├── test_microphone_menu.py
+│   ├── test_smoke.py
+│   ├── test_streaming_response.py
+│   ├── test_talking_sheep_voice.py
+│   ├── test_voice_layer.py
+│   └── test_voice_layer_streaming.py
+├── Kokoro-Vietnamese/          # Git submodule - Vietnamese TTS
 ├── assets/
-│   └── bleats/
-├── models/
-├── runtime/
-├── docs/
-├── requirements.txt
-├── requirements-rpi.txt
-├── run-chat.sh
-├── THIRD_PARTY_LICENSES.md
-└── README.md
+│   └── bleats/                 # Tiếng cừu effect files
+├── models/                     # Model storage (STT, LLM)
+├── runtime/                    # Runtime files (recordings, logs)
+├── docs/                       # Tài liệu chi tiết
+├── requirements.txt            # Python dependencies
+├── requirements-dev.txt        # Development dependencies
+├── requirements-rpi.txt        # Raspberry Pi specific dependencies
+├── run-chat.sh                 # Script khởi động chính
+├── verify_pipeline.py          # Pipeline verification script
+├── THIRD_PARTY_LICENSES.md     # Third-party licenses
+└── README.md                   # This file
 ```
 
 ## Xử lý lỗi
@@ -272,17 +288,39 @@ Nếu thư mục `Kokoro-Vietnamese` trống sau khi clone:
 git submodule update --init --recursive
 ```
 
-## Tài liệu
+## Kiến trúc & Tài liệu
 
-Các tài liệu chi tiết về kiến trúc, cấu hình, triển khai và xử lý lỗi nên được đặt trong thư mục `docs/` thay vì mở rộng README này.
+### Pipeline Streaming
+Talking Sheep sử dụng kiến trúc streaming với 3 worker threads chính:
 
-```text
-docs/
-├── architecture.md
-├── configuration.md
-├── deployment.md
-└── troubleshooting.md
-```
+1. **LLM Worker**: Tạo phản hồi từng phần từ LLM, lọc thinking tags và code blocks
+2. **TTS Worker**: Tổng hợp giọng nói cho từng câu hoàn chỉnh
+3. **Playback Worker**: Phát audio segments theo thứ tự
+
+Hệ thống sử dụng 2 queue để truyền dữ liệu:
+- `SentenceQueue`: Chuyển sentences từ LLM sang TTS
+- `AudioQueue`: Chuyển audio segments từ TTS sang playback
+
+### Files Chính
+- `streaming_response.py`: Pipeline streaming với queue management và metrics
+- `microphone_menu.py`: Menu tương tác chọn microphone với arrow keys
+- `env_setup.py`: Thiết lập thread environment trước khi import thư viện nặng
+- `voice_layer.py`: Sentence assembly, TTS synthesis, audio normalization
+
+### Debugging Files
+Các file debugging Markdown có sẵn trong repository:
+- `DEBUGGING.md`: Hướng dẫn debug chi tiết
+- `ARCHITECTURE.md`: Tài liệu kiến trúc hệ thống
+- `TROUBLESHOOTING.md`: Xử lý lỗi thường gặp
+- `TESTING.md`: Hướng dẫn chạy test suite
+
+### Tài liệu Chi Tiết
+Các tài liệu chi tiết về kiến trúc, cấu hình, triển khai và xử lý lỗi:
+- `implementation-plan.md`: Kế hoạch triển khai chi tiết
+- `TODO.md`: Danh sách tính năng cần làm
+- `DEBUGGING.md`: Hướng dẫn debug chi tiết (sẽ được tạo)
+- `ARCHITECTURE.md`: Tài liệu kiến trúc hệ thống (sẽ được tạo)
+- `TROUBLESHOOTING.md`: Xử lý lỗi thường gặp (sẽ được tạo)
 
 ## Tính năng Đã Hoãn
 
